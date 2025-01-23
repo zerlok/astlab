@@ -20,6 +20,7 @@ __all__ = [
 
 import abc
 import ast
+import sys
 import typing as t
 from collections import defaultdict, deque
 from contextlib import contextmanager
@@ -913,21 +914,39 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeInfo
         self.__keywords.update({key: value for key, value in keywords.items() if value is not None})
         return self
 
-    @override
-    def build(self) -> t.Sequence[ast.stmt]:
-        return (
-            # TODO: find a way to fix Missing positional argument "type_params" in call to "ClassDef" without type
-            #  ignore.
-            ast.ClassDef(  # type: ignore[call-arg]
-                name=self._context.name,
-                bases=[self._resolver.expr(base) for base in self.__bases],
-                keywords=[
-                    ast.keyword(arg=key, value=self._resolver.expr(value)) for key, value in self.__keywords.items()
-                ],
-                body=self._resolver.stmts(*self._context.current_body, docs=self.__docs, pass_if_empty=True),
-                decorator_list=self.__build_decorators(),
-            ),
-        )
+    # NOTE: workaround for passing mypy typings in CI for python 3.12
+    if sys.version_info >= (3, 12):
+
+        @override
+        def build(self) -> t.Sequence[ast.stmt]:
+            return (
+                ast.ClassDef(
+                    name=self._context.name,
+                    bases=[self._resolver.expr(base) for base in self.__bases],
+                    keywords=[
+                        ast.keyword(arg=key, value=self._resolver.expr(value)) for key, value in self.__keywords.items()
+                    ],
+                    body=self._resolver.stmts(*self._context.current_body, docs=self.__docs, pass_if_empty=True),
+                    decorator_list=self.__build_decorators(),
+                    type_params=[],
+                ),
+            )
+
+    else:
+
+        @override
+        def build(self) -> t.Sequence[ast.stmt]:
+            return (
+                ast.ClassDef(
+                    name=self._context.name,
+                    bases=[self._resolver.expr(base) for base in self.__bases],
+                    keywords=[
+                        ast.keyword(arg=key, value=self._resolver.expr(value)) for key, value in self.__keywords.items()
+                    ],
+                    body=self._resolver.stmts(*self._context.current_body, docs=self.__docs, pass_if_empty=True),
+                    decorator_list=self.__build_decorators(),
+                ),
+            )
 
     @override
     def _create_scope_builder(self) -> ClassBodyASTBuilder:
