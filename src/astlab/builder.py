@@ -916,7 +916,9 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeInfo
     @override
     def build(self) -> t.Sequence[ast.stmt]:
         return (
-            ast.ClassDef(
+            # TODO: find a way to fix Missing positional argument "type_params" in call to "ClassDef" without type
+            #  ignore.
+            ast.ClassDef(  # type: ignore[call-arg]
                 name=self._context.name,
                 bases=[self._resolver.expr(base) for base in self.__bases],
                 keywords=[
