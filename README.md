@@ -12,8 +12,8 @@
 ## Features
 
 - **Easy AST construction**: Build Python code using a fluent and intuitive API.
-- **Code generation**: Convert your AST into valid Python code.
-- **Supports nested structures**: Create nested classes, methods, and fields effortlessly.
+- **Code generation**: Convert your AST into valid Python code, forget about jinja templates.
+- **Supports nested scopes & auto imports**: Create nested classes, methods, and fields effortlessly. Reference types from other modules easily.
 - **Highly customizable**: Extend and modify the API to suit your needs.
 
 ## Installation
