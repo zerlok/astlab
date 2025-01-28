@@ -1,34 +1,67 @@
 from __future__ import annotations
 
 __all__ = [
-    "ExpressionASTBuilder",
-    "StatementASTBuilder",
-    "TypeInfoProvider",
+    "ASTExpressionBuilder",
+    "ASTResolver",
+    "ASTStatementBuilder",
+    "Expr",
+    "Stmt",
+    "TypeDefBuilder",
+    "TypeRef",
 ]
 
 
 import abc
+import ast
 import typing as t
 
-if t.TYPE_CHECKING:
-    import ast
-
-    from astlab.info import TypeInfo
+from astlab.info import TypeInfo
 
 
-class ExpressionASTBuilder(metaclass=abc.ABCMeta):
+class ASTExpressionBuilder(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def build(self) -> ast.expr:
         raise NotImplementedError
 
 
-class StatementASTBuilder(metaclass=abc.ABCMeta):
+class ASTStatementBuilder(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def build(self) -> t.Sequence[ast.stmt]:
         raise NotImplementedError
 
 
-class TypeInfoProvider(metaclass=abc.ABCMeta):
+class TypeDefBuilder(metaclass=abc.ABCMeta):
+    @property
     @abc.abstractmethod
-    def provide_type_info(self) -> TypeInfo:
+    def info(self) -> TypeInfo:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def ref(self) -> ASTExpressionBuilder:
+        raise NotImplementedError
+
+
+Expr = t.Union[ast.expr, ASTExpressionBuilder]
+Stmt = t.Union[ast.stmt, ASTStatementBuilder, Expr]
+TypeRef = t.Union[
+    Expr,
+    type[object],
+    t._SpecialForm,  # noqa: SLF001
+    TypeInfo,
+    TypeDefBuilder,
+]
+
+
+class ASTResolver(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def expr(self, ref: TypeRef, *tail: str) -> ast.expr:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def body(
+        self,
+        *stmts: t.Optional[Stmt],
+        docs: t.Optional[t.Sequence[str]] = None,
+        pass_if_empty: bool = False,
+    ) -> list[ast.stmt]:
         raise NotImplementedError

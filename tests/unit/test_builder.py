@@ -109,12 +109,33 @@ def build_bar_impl_module() -> ModuleASTBuilder:
         return bar
 
 
+@to_module_param
+def build_optionals() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    class MyOptions:
+        my_generic_option_int: typing.Optional[builtins.int]
+        my_optional_str: typing.Optional[builtins.str]
+        my_optional_list_of_int: typing.Optional[builtins.list[builtins.int]]
+    """
+
+    with module("opts") as mod, mod.class_def("MyOptions") as opt:
+        opt.field_def("my_generic_option_int", opt.generic_type(t.Optional, int))
+        opt.field_def("my_optional_str", opt.type_ref(str).optional())
+        opt.field_def("my_optional_list_of_int", opt.type_ref(int).list().optional())
+
+        return mod
+
+
 @pytest.mark.parametrize(
     ("builder", "expected"),
     [
         build_empty_module,
         build_simple_module,
         build_bar_impl_module,
+        build_optionals,
     ],
 )
 def test_module_build(builder: ModuleASTBuilder, expected: ast.Module) -> None:

@@ -1,23 +1,12 @@
 from __future__ import annotations
 
 __all__ = [
-    "Expr",
-    "Stmt",
-    "TypeRef",
     "get_predefs",
 ]
 
-
-import ast
-import typing as t
 from functools import cache, cached_property
 
-from astlab.abc import ExpressionASTBuilder, StatementASTBuilder, TypeInfoProvider
 from astlab.info import ModuleInfo, TypeInfo
-
-Expr = t.Union[ast.expr, ExpressionASTBuilder]
-Stmt = t.Union[ast.stmt, StatementASTBuilder, Expr]
-TypeRef = t.Union[Expr, type[object], TypeInfo, TypeInfoProvider]
 
 
 @cache  # type: ignore[misc]
