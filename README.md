@@ -31,6 +31,7 @@ pip install astlab
 Here's a basic example of how to use **astlab** to create a Python module with a dataclass.
 
 ```python
+import ast
 import astlab
 
 # Create a new Python module
@@ -42,9 +43,13 @@ with astlab.module("foo") as foo:
 
 # Generate and print the Python code from the AST
 print(foo.render())
+# Or you can just get the AST
+print(ast.dump(foo.build(), indent=4))
 ```
 
-### Output:
+#### Output
+
+Render:
 
 ```python
 import builtins
@@ -53,6 +58,38 @@ import dataclasses
 @dataclasses.dataclass()
 class Bar:
     spam: builtins.int
+```
+
+Built AST:
+
+```python
+Module(
+    body=[
+        Import(
+            names=[
+                alias(name='builtins')]),
+        Import(
+            names=[
+                alias(name='dataclasses')]),
+        ClassDef(
+            name='Bar',
+            bases=[],
+            keywords=[],
+            body=[
+                AnnAssign(
+                    target=Name(id='spam'),
+                    annotation=Attribute(
+                        value=Name(id='builtins'),
+                        attr='int'),
+                    simple=1)],
+            decorator_list=[
+                Call(
+                    func=Attribute(
+                        value=Name(id='dataclasses'),
+                        attr='dataclass'),
+                    args=[],
+                    keywords=[])])],
+    type_ignores=[])
 ```
 
 ### Func def & call example
@@ -69,7 +106,7 @@ with astlab.module("foo") as foo:
 print(foo.render())
 ```
 
-### Output:
+#### Output
 
 ```python
 import builtins
@@ -99,7 +136,7 @@ with astlab.package("main") as main:
 print(spam.render())
 ```
 
-### Output:
+#### Output
 
 ```python
 import main.foo
