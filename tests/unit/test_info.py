@@ -214,12 +214,44 @@ class TestTypeInfo:
         ("value", "expected"),
         [
             pytest.param(
-                "builtins:int",
+                "builtins.int",
                 TypeInfo(ModuleInfo(None, "builtins"), ("int",)),
             ),
             pytest.param(
-                "pyprotostuben.python.info:TypeInfo",
-                TypeInfo(ModuleInfo(PackageInfo(PackageInfo(None, "pyprotostuben"), "python"), "info"), ("TypeInfo",)),
+                "tests.unit.test_info.TestTypeInfo",
+                TypeInfo(ModuleInfo(PackageInfo(PackageInfo(None, "tests"), "unit"), "test_info"), ("TestTypeInfo",)),
+            ),
+            pytest.param(
+                "typing.Optional[builtins.int]",
+                TypeInfo(
+                    ModuleInfo(None, "typing"), ("Optional",), (TypeInfo(ModuleInfo(None, "builtins"), ("int",)),)
+                ),
+            ),
+            pytest.param(
+                "typing.Mapping[builtins.int, builtins.str]",
+                TypeInfo(
+                    ModuleInfo(None, "typing"),
+                    ("Mapping",),
+                    (
+                        TypeInfo(ModuleInfo(None, "builtins"), ("int",)),
+                        TypeInfo(ModuleInfo(None, "builtins"), ("str",)),
+                    ),
+                ),
+            ),
+            pytest.param(
+                "typing.Mapping[builtins.int, typing.Optional[builtins.str]]",
+                TypeInfo(
+                    ModuleInfo(None, "typing"),
+                    ("Mapping",),
+                    (
+                        TypeInfo(ModuleInfo(None, "builtins"), ("int",)),
+                        TypeInfo(
+                            ModuleInfo(None, "typing"),
+                            ("Optional",),
+                            (TypeInfo(ModuleInfo(None, "builtins"), ("str",)),),
+                        ),
+                    ),
+                ),
             ),
         ],
     )

@@ -14,8 +14,8 @@ __all__ = [
     "ModuleASTBuilder",
     "PackageASTBuilder",
     "ScopeASTBuilder",
-    "module",
-    "package",
+    "build_module",
+    "build_package",
 ]
 
 import abc
@@ -39,7 +39,7 @@ from astlab.writer import render_module, write_module
 T_co = t.TypeVar("T_co", covariant=True)
 
 
-def package(
+def build_package(
     info: t.Union[str, PackageInfo],
     parent: t.Optional[PackageInfo] = None,
     resolver: t.Optional[ASTResolver] = None,
@@ -52,7 +52,7 @@ def package(
     return PackageASTBuilder(context, resolver if resolver is not None else DefaultASTResolver(context), pkg_info, {})
 
 
-def module(
+def build_module(
     info: t.Union[str, ModuleInfo],
     parent: t.Optional[PackageInfo] = None,
     resolver: t.Optional[ASTResolver] = None,
@@ -65,7 +65,13 @@ def module(
     return ModuleASTBuilder(context, resolver if resolver is not None else DefaultASTResolver(context), mod_info, [])
 
 
-class AttrASTBuilder(ASTExpressionBuilder):
+class Visitable(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def accept(self, visitor: BuilderVisitor) -> None:
+        raise NotImplementedError
+
+
+class AttrASTBuilder(ASTExpressionBuilder, Visitable):
     def __init__(self, resolver: ASTResolver, head: t.Union[str, TypeRef], *tail: str) -> None:
         self.__resolver = resolver
         self.__head = head
@@ -115,6 +121,10 @@ class AttrASTBuilder(ASTExpressionBuilder):
             ast.Name(id=self.__head) if isinstance(self.__head, str) else self.__head,
             *self.__tail,
         )
+
+    @override
+    def accept(self, visitor: BuilderVisitor) -> None:
+        return visitor.visit_attr(self)
 
 
 # noinspection PyTypeChecker
@@ -1295,3 +1305,49 @@ class PackageASTBuilder(t.ContextManager["PackageASTBuilder"]):
     ) -> None:
         for builder in self.iter_modules():
             builder.write(mode=mode, mkdir=mkdir, exist_ok=exist_ok)
+
+
+class BuilderVisitor(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def visit_package(self, builder: PackageASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_module(self, builder: ModuleASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_attr(self, builder: AttrASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_call(self, builder: CallASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_class_header(self, builder: ClassHeaderASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_class_body(self, builder: ClassBodyASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_for_header(self, builder: ForHeaderASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_func_header(self, builder: FuncHeaderASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_func_body(self, builder: FuncBodyASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_method_header(self, builder: MethodHeaderASTBuilder) -> None:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def visit_method_body(self, builder: MethodBodyASTBuilder) -> None:
+        raise NotImplementedError

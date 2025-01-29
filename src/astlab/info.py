@@ -6,15 +6,17 @@ __all__ = [
     "TypeInfo",
 ]
 
+import ast
 import functools as ft
+import importlib
 import typing as t
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from astlab._typing import Self, override
 
 if t.TYPE_CHECKING:
     from types import ModuleType
-
-    from astlab._typing import Self
 
 
 @dataclass(frozen=True)
@@ -90,11 +92,18 @@ class ModuleInfo:
 class TypeInfo:
     module: t.Optional[ModuleInfo]
     ns: t.Sequence[str]
+    type_params: t.Sequence[TypeInfo] = field(default_factory=tuple)
 
     @classmethod
     def from_str(cls, ref: str) -> Self:
-        module, ns = ref.split(":", maxsplit=1)
-        return cls(ModuleInfo.from_str(module), tuple(ns.split(".")))
+        parser = TypeInfoParser()
+        parser.visit(ast.parse(ref))
+
+        return cls(
+            module=parser.module,
+            ns=parser.namespace,
+            type_params=parser.type_params,
+        )
 
     @classmethod
     def from_type(cls, type_: type[object]) -> Self:
@@ -103,3 +112,79 @@ class TypeInfo:
     @classmethod
     def build(cls, module: t.Optional[ModuleInfo], *ns: str) -> Self:
         return cls(module, ns)
+
+
+class TypeInfoParser(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.__module: t.Optional[ModuleInfo] = None
+        self.__namespace = list[str]()
+        self.__type_params = list[TypeInfo]()
+
+    @property
+    def module(self) -> t.Optional[ModuleInfo]:
+        return self.__module
+
+    @property
+    def namespace(self) -> t.Sequence[str]:
+        return tuple(self.__namespace)
+
+    @property
+    def type_params(self) -> t.Sequence[TypeInfo]:
+        return tuple(self.__type_params)
+
+    # NOTE: `ruff` can't work with `override`
+    @override
+    def visit_Name(self, node: ast.Name) -> None:  # noqa: N802
+        info = self.__get_module_info(node.id)
+        if info is not None:
+            self.__module = info
+
+    # NOTE: `ruff` can't work with `override`
+    @override
+    def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: N802
+        self.generic_visit(node)
+
+        info = self.__get_module_info(node.attr)
+        if info is not None:
+            self.__module = info
+
+        elif info is None:
+            self.__namespace.append(node.attr)
+
+    # NOTE: `ruff` can't work with `override`
+    @override
+    def visit_Subscript(self, node: ast.Subscript) -> None:  # noqa: N802
+        self.visit(node.value)
+
+        if isinstance(node.slice, ast.Tuple):
+            for item in node.slice.elts:
+                self.__parse_type_param(item)
+        else:
+            self.__parse_type_param(node.slice)
+
+    def __get_module_info(self, name: str) -> t.Optional[ModuleInfo]:
+        if self.__namespace:
+            return None
+
+        package = PackageInfo(self.__module.parent, self.__module.name) if self.__module is not None else None
+        info = ModuleInfo(package, name)
+
+        try:
+            importlib.import_module(info.qualname)
+
+        except ImportError:
+            return None
+
+        else:
+            return info
+
+    def __parse_type_param(self, item: ast.AST) -> None:
+        parser = self.__class__()
+        parser.visit(item)
+        self.__type_params.append(
+            TypeInfo(
+                module=parser.module,
+                ns=parser.namespace,
+                type_params=parser.type_params,
+            )
+        )

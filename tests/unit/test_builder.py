@@ -5,7 +5,7 @@ import typing as t
 import pytest
 from _pytest.mark import ParameterSet
 
-from astlab.builder import ModuleASTBuilder, module, package
+from astlab.builder import ModuleASTBuilder, build_module, build_package
 from astlab.reader import parse_module
 
 
@@ -18,7 +18,7 @@ def to_module_param(func: t.Callable[[], ModuleASTBuilder]) -> ParameterSet:
 @to_module_param
 def build_empty_module() -> ModuleASTBuilder:
     """"""
-    with module("simple") as mod:
+    with build_module("simple") as mod:
         return mod
 
 
@@ -52,7 +52,7 @@ def build_simple_module() -> ModuleASTBuilder:
     """
 
     with (
-        module("simple") as mod,
+        build_module("simple") as mod,
         mod.class_def("Foo") as foo,
     ):
         with mod.class_def("Bar").dataclass() as bar:
@@ -90,7 +90,7 @@ def build_bar_impl_module() -> ModuleASTBuilder:
     """
 
     with (
-        package("simple") as pkg,
+        build_package("simple") as pkg,
         pkg.module("foo") as foo,
         foo.class_def("Foo") as foo_class,
         foo_class.method_def("do_stuff")
@@ -121,7 +121,7 @@ def build_optionals() -> ModuleASTBuilder:
         my_optional_list_of_int: typing.Optional[builtins.list[builtins.int]]
     """
 
-    with module("opts") as mod, mod.class_def("MyOptions") as opt:
+    with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
         opt.field_def("my_generic_option_int", opt.generic_type(t.Optional, int))
         opt.field_def("my_optional_str", opt.type_ref(str).optional())
         opt.field_def("my_optional_list_of_int", opt.type_ref(int).list().optional())
