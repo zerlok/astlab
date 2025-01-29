@@ -54,3 +54,59 @@ import dataclasses
 class Bar:
     spam: builtins.int
 ```
+
+### Func def & call example
+
+```python
+import astlab
+
+with astlab.module("foo") as foo:
+    with foo.class_def("Bar") as bar:
+        with bar.method_def("do_stuff").arg("spam", int).returns(str) as stuff:
+            stuff.assign_stmt("result", stuff.call(str).arg(stuff.attr("spam")))
+            stuff.return_stmt(stuff.attr("result"))
+
+print(foo.render())
+```
+
+### Output:
+
+```python
+import builtins
+
+class Bar:
+
+    def do_stuff(self, spam: builtins.int) -> builtins.str:
+        result = builtins.str(spam)
+        return result
+```
+
+### Type reference example
+
+```python
+import astlab
+
+with astlab.package("main") as main:
+    with main.module("foo") as foo:
+        with foo.class_def("Bar") as bar:
+            pass
+
+    with main.module("spam") as spam:
+        with spam.class_def("Eggs").inherits(bar) as eggs:
+            with spam.func_def("do_stuff").returns(bar.ref().optional()) as stuff:
+                pass
+
+print(spam.render())
+```
+
+### Output:
+
+```python
+import main.foo
+import typing
+
+class Eggs(main.foo.Bar):
+
+    def do_stuff() -> typing.Optional[main.foo.Bar]:
+        pass
+```
