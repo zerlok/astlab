@@ -13,15 +13,16 @@ import importlib
 import typing as t
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import GenericAlias
 
 from astlab._typing import assert_never, override
 
 if t.TYPE_CHECKING:
     from types import ModuleType
 
-
 RuntimeType = t.Union[
     type[object],
+    GenericAlias,
     t._SpecialForm,  # noqa: SLF001
     t._BaseGenericAlias,  # type: ignore[name-defined] # noqa: SLF001
 ]
@@ -263,10 +264,14 @@ class TypeInfoInspector:
     def inspect(self, type_: RuntimeType) -> TypeInfo:
         if isinstance(
             type_,
-            type,  # type: ignore[misc]
+            (
+                type,  # type: ignore[misc]
+                GenericAlias,  # type: ignore[misc]
+            ),
         ):
-            module = ModuleInfo.from_str(type_.__module__)
-            *namespace, name = type_.__name__.split(".")
+            origin = self.__get_type_origin(type_)
+            module = ModuleInfo.from_str(origin.__module__)
+            *namespace, name = origin.__name__.split(".")
 
             return TypeInfo(
                 name=name,
@@ -287,6 +292,12 @@ class TypeInfoInspector:
 
         else:
             assert_never(type_)  # noqa: RET503
+
+    def __get_type_origin(self, type_: RuntimeType) -> type[object]:
+        typing_origin: t.Optional[type[object]] = t.get_origin(type_)
+        origin = typing_origin or type_
+        assert isinstance(origin, type)  # type: ignore[misc]
+        return origin
 
     def __get_type_params(self, type_: RuntimeType) -> t.Sequence[RuntimeType]:
         origin: t.Optional[RuntimeType] = t.get_origin(type_)

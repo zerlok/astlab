@@ -8,6 +8,7 @@ import ast
 import typing as t
 from dataclasses import replace
 from itertools import chain
+from types import GenericAlias
 
 from astlab._typing import assert_never, override
 from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefBuilder, TypeRef
@@ -34,6 +35,7 @@ class DefaultASTResolver(ASTResolver):
             ref,
             (
                 type,  # type: ignore[misc]
+                GenericAlias,  # type: ignore[misc]
                 t._SpecialForm,  # noqa: SLF001
                 t._BaseGenericAlias,  # type: ignore[misc,attr-defined] # noqa: SLF001
             ),
