@@ -8,21 +8,32 @@ from _pytest.mark import ParameterSet
 from astlab.builder import ModuleASTBuilder, build_module, build_package
 from astlab.reader import parse_module
 
+_PARAMS: t.Final[list[ParameterSet]] = []
 
-def to_module_param(func: t.Callable[[], ModuleASTBuilder]) -> ParameterSet:
+
+def _to_module_param(func: t.Callable[[], ModuleASTBuilder]) -> ParameterSet:
     expected_code = inspect.getdoc(func)
     assert expected_code is not None
-    return pytest.param(func(), parse_module(expected_code), id=func.__name__)
+
+    param = pytest.param(func(), parse_module(expected_code), id=func.__name__)
+    _PARAMS.append(param)
+
+    return param
 
 
-@to_module_param
+@pytest.mark.parametrize(("builder", "expected"), _PARAMS)
+def test_module_build(builder: ModuleASTBuilder, expected: ast.Module) -> None:
+    assert builder.render() == ast.unparse(expected)
+
+
+@_to_module_param
 def build_empty_module() -> ModuleASTBuilder:
     """"""
     with build_module("simple") as mod:
         return mod
 
 
-@to_module_param
+@_to_module_param
 def build_simple_module() -> ModuleASTBuilder:
     """
     import abc
@@ -74,7 +85,7 @@ def build_simple_module() -> ModuleASTBuilder:
         return mod
 
 
-@to_module_param
+@_to_module_param
 def build_bar_impl_module() -> ModuleASTBuilder:
     """
     import builtins
@@ -109,7 +120,7 @@ def build_bar_impl_module() -> ModuleASTBuilder:
         return bar
 
 
-@to_module_param
+@_to_module_param
 def build_optionals() -> ModuleASTBuilder:
     """
     import builtins
@@ -129,14 +140,54 @@ def build_optionals() -> ModuleASTBuilder:
         return mod
 
 
-@pytest.mark.parametrize(
-    ("builder", "expected"),
-    [
-        build_empty_module,
-        build_simple_module,
-        build_bar_impl_module,
-        build_optionals,
-    ],
-)
-def test_module_build(builder: ModuleASTBuilder, expected: ast.Module) -> None:
-    assert builder.render() == ast.unparse(expected)
+@_to_module_param
+def build_runtime_types() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    int_to_str = builtins.dict[builtins.int, builtins.str]()
+    int_to_opt_str = builtins.dict[builtins.int, typing.Optional[builtins.str]]()
+    """
+
+    with build_module("types") as mod:
+        mod.assign_stmt("int_to_str", mod.type_ref(dict[int, str]).init())
+        mod.assign_stmt("int_to_opt_str", mod.type_ref(dict[int, t.Optional[str]]).init())
+
+        return mod
+
+
+@_to_module_param
+def build_is_not_none_expr() -> ModuleASTBuilder:
+    """
+    maybe = body if test is not None else None
+    """
+
+    with build_module("types") as mod:
+        mod.assign_stmt("maybe", mod.ternary_not_none_expr(mod.attr("body"), mod.attr("test")))
+
+        return mod
+
+
+@_to_module_param
+def build_list_const() -> ModuleASTBuilder:
+    """
+    result = [1, 2, foo, bar]
+    """
+
+    with build_module("types") as mod:
+        mod.assign_stmt("result", mod.list_expr([mod.const(1), mod.const(2), mod.attr("foo"), mod.attr("bar")]))
+
+        return mod
+
+
+@_to_module_param
+def build_list_compr_expr() -> ModuleASTBuilder:
+    """
+    result = [item for target in iterable]
+    """
+
+    with build_module("types") as mod:
+        mod.assign_stmt("result", mod.list_expr(mod.attr("iterable"), mod.attr("target"), mod.attr("item")))
+
+        return mod

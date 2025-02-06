@@ -6,7 +6,7 @@ from types import ModuleType
 import pytest
 
 from astlab import abc as astlab_abc
-from astlab.info import ModuleInfo, PackageInfo, TypeInfo
+from astlab.info import ModuleInfo, PackageInfo, RuntimeType, TypeInfo
 
 
 class TestPackageInfo:
@@ -215,40 +215,72 @@ class TestTypeInfo:
         [
             pytest.param(
                 "builtins.int",
-                TypeInfo(ModuleInfo(None, "builtins"), ("int",)),
+                TypeInfo("int", ModuleInfo(None, "builtins")),
             ),
             pytest.param(
                 "tests.unit.test_info.TestTypeInfo",
-                TypeInfo(ModuleInfo(PackageInfo(PackageInfo(None, "tests"), "unit"), "test_info"), ("TestTypeInfo",)),
+                TypeInfo("TestTypeInfo", ModuleInfo(PackageInfo(PackageInfo(None, "tests"), "unit"), "test_info")),
+            ),
+            pytest.param(
+                "typing.Optional",
+                TypeInfo(
+                    name="Optional",
+                    module=ModuleInfo(None, "typing"),
+                ),
             ),
             pytest.param(
                 "typing.Optional[builtins.int]",
                 TypeInfo(
-                    ModuleInfo(None, "typing"), ("Optional",), (TypeInfo(ModuleInfo(None, "builtins"), ("int",)),)
+                    name="Optional",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(TypeInfo("int", ModuleInfo(None, "builtins")),),
+                ),
+            ),
+            pytest.param(
+                "typing.Union[builtins.int, builtins.str]",
+                TypeInfo(
+                    name="Union",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(
+                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                    ),
+                ),
+            ),
+            pytest.param(
+                "typing.Union[builtins.int, builtins.str, None]",
+                TypeInfo(
+                    name="Union",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(
+                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                        TypeInfo("NoneType", ModuleInfo(None, "builtins")),
+                    ),
                 ),
             ),
             pytest.param(
                 "typing.Mapping[builtins.int, builtins.str]",
                 TypeInfo(
-                    ModuleInfo(None, "typing"),
-                    ("Mapping",),
-                    (
-                        TypeInfo(ModuleInfo(None, "builtins"), ("int",)),
-                        TypeInfo(ModuleInfo(None, "builtins"), ("str",)),
+                    name="Mapping",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(
+                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo("str", ModuleInfo(None, "builtins")),
                     ),
                 ),
             ),
             pytest.param(
                 "typing.Mapping[builtins.int, typing.Optional[builtins.str]]",
                 TypeInfo(
-                    ModuleInfo(None, "typing"),
-                    ("Mapping",),
-                    (
-                        TypeInfo(ModuleInfo(None, "builtins"), ("int",)),
+                    name="Mapping",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(
+                        TypeInfo("int", ModuleInfo(None, "builtins")),
                         TypeInfo(
-                            ModuleInfo(None, "typing"),
-                            ("Optional",),
-                            (TypeInfo(ModuleInfo(None, "builtins"), ("str",)),),
+                            name="Optional",
+                            module=ModuleInfo(None, "typing"),
+                            type_params=(TypeInfo("str", ModuleInfo(None, "builtins")),),
                         ),
                     ),
                 ),
@@ -263,13 +295,70 @@ class TestTypeInfo:
         [
             pytest.param(
                 int,
-                TypeInfo(ModuleInfo(None, "builtins"), ("int",)),
+                TypeInfo("int", ModuleInfo(None, "builtins")),
             ),
             pytest.param(
                 TypeInfo,
-                TypeInfo(ModuleInfo(PackageInfo(None, "astlab"), "info"), ("TypeInfo",)),
+                TypeInfo("TypeInfo", ModuleInfo(PackageInfo(None, "astlab"), "info")),
+            ),
+            pytest.param(
+                t.Optional[int],
+                TypeInfo(
+                    name="Optional",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(TypeInfo("int", ModuleInfo(None, "builtins")),),
+                ),
+            ),
+            pytest.param(
+                t.Union[int, str],
+                TypeInfo(
+                    name="Union",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(
+                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                    ),
+                ),
+            ),
+            pytest.param(
+                t.Union[int, str, None],
+                TypeInfo(
+                    name="Union",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(
+                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                        TypeInfo("NoneType", ModuleInfo(None, "builtins")),
+                    ),
+                ),
+            ),
+            pytest.param(
+                t.Mapping[int, str],
+                TypeInfo(
+                    name="Mapping",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(
+                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                    ),
+                ),
+            ),
+            pytest.param(
+                t.Mapping[int, t.Optional[str]],
+                TypeInfo(
+                    name="Mapping",
+                    module=ModuleInfo(None, "typing"),
+                    type_params=(
+                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo(
+                            name="Optional",
+                            module=ModuleInfo(None, "typing"),
+                            type_params=(TypeInfo("str", ModuleInfo(None, "builtins")),),
+                        ),
+                    ),
+                ),
             ),
         ],
     )
-    def test_from_type_ok(self, value: type[object], expected: TypeInfo) -> None:
+    def test_from_type_ok(self, value: RuntimeType, expected: TypeInfo) -> None:
         assert TypeInfo.from_type(value) == expected

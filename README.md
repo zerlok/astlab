@@ -130,7 +130,7 @@ with astlab.package("main") as main:
 
     with main.module("spam") as spam:
         with spam.class_def("Eggs").inherits(bar) as eggs:
-            with spam.func_def("do_stuff").returns(bar.ref().optional()) as stuff:
+            with eggs.method_def("do_stuff").returns(bar.ref().optional()) as stuff:
                 pass
 
 print(spam.render())
@@ -144,6 +144,6 @@ import typing
 
 class Eggs(main.foo.Bar):
 
-    def do_stuff() -> typing.Optional[main.foo.Bar]:
+    def do_stuff(self) -> typing.Optional[main.foo.Bar]:
         pass
 ```

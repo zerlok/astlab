@@ -6,11 +6,12 @@ __all__ = [
 
 import ast
 import typing as t
+from dataclasses import replace
 from itertools import chain
 
 from astlab._typing import assert_never, override
 from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefBuilder, TypeRef
-from astlab.info import ModuleInfo, TypeInfo
+from astlab.info import TypeInfo
 
 if t.TYPE_CHECKING:
     from astlab.context import BuildContext
@@ -34,9 +35,11 @@ class DefaultASTResolver(ASTResolver):
             (
                 type,  # type: ignore[misc]
                 t._SpecialForm,  # noqa: SLF001
+                t._BaseGenericAlias,  # type: ignore[misc,attr-defined] # noqa: SLF001
             ),
         ):
-            return self.__type_info_expr(self.__get_type_info(ref), *tail)
+            info = TypeInfo.from_type(ref)  # type: ignore[misc]
+            return self.__type_info_expr(info, *tail)
 
         elif isinstance(ref, TypeInfo):
             return self.__type_info_expr(ref, *tail)
@@ -76,36 +79,43 @@ class DefaultASTResolver(ASTResolver):
         return body
 
     def __type_info_expr(self, info: TypeInfo, *tail: str) -> ast.expr:
-        resolved_info = self.__resolve_dependency(info)
-        head, *middle = (*(resolved_info.module.parts if resolved_info.module is not None else ()), *resolved_info.ns)
+        if info.type_vars:
+            msg = "can't build expr for type with type vars"
+            raise ValueError(msg, info)
 
-        return self.__chain_attr(ast.Name(id=head), *middle, *tail)
+        resolved_info = self.__resolve_dependency(info)
+        return self.__type_info_attr(resolved_info, *tail)
+
+    def __type_info_attr(self, info: TypeInfo, *tail: str) -> ast.expr:
+        head, *middle = (
+            info.parts[len(self.__context.module.parts) :] if info.module == self.__context.module else info.parts
+        )
+
+        origin = self.__chain_attr(ast.Name(id=head), *middle, *tail)
+        args = [self.__type_info_attr(param) for param in info.type_params]
+
+        return (
+            ast.Subscript(
+                value=origin,
+                slice=ast.Tuple(elts=args) if len(args) > 1 else args[0],
+            )
+            if args
+            else origin
+        )
 
     def __resolve_dependency(self, info: TypeInfo) -> TypeInfo:
-        if info.module is not None and info.module != self.__context.module:
+        type_params = tuple(self.__resolve_dependency(param) for param in info.type_params)
+
+        if info.module != self.__context.module:
             self.__context.current_dependencies.add(info.module)
-            return info
+            return replace(info, type_params=type_params)
 
         ns = self.__context.namespace
-        return TypeInfo(None, info.ns if info.ns[: len(ns)] != ns else info.ns[len(ns) :])
-
-    # TODO: support type checking in this function, but keep the hack for typing.Optional in python 3.9
-    @t.no_type_check
-    def __get_type_info(self, obj: object) -> TypeInfo:
-        if isinstance(obj, type):
-            return TypeInfo.from_type(obj)
-
-        if isinstance(
-            obj,
-            t._SpecialForm,  # noqa: SLF001
-        ):
-            return TypeInfo.build(
-                ModuleInfo.from_str(obj.__module__),
-                obj._name,  # noqa: SLF001
-            )
-
-        msg = "can't get type info for provided type"
-        raise TypeError(msg, obj)
+        return replace(
+            info,
+            namespace=info.namespace[len(ns) :] if info.namespace[: len(ns)] == ns else info.namespace,
+            type_params=type_params,
+        )
 
     def __chain_attr(self, expr: ast.expr, *tail: str) -> ast.expr:
         for attr in tail:

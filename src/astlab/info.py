@@ -3,6 +3,7 @@ from __future__ import annotations
 __all__ = [
     "ModuleInfo",
     "PackageInfo",
+    "RuntimeType",
     "TypeInfo",
 ]
 
@@ -10,13 +11,20 @@ import ast
 import functools as ft
 import importlib
 import typing as t
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from astlab._typing import Self, override
+from astlab._typing import assert_never, override
 
 if t.TYPE_CHECKING:
     from types import ModuleType
+
+
+RuntimeType = t.Union[
+    type[object],
+    t._SpecialForm,  # noqa: SLF001
+    t._BaseGenericAlias,  # type: ignore[name-defined] # noqa: SLF001
+]
 
 
 @dataclass(frozen=True)
@@ -25,7 +33,27 @@ class PackageInfo:
     name: str
 
     @classmethod
-    def build(cls, *parts: str) -> Self:
+    def from_str(cls, qualname: str) -> PackageInfo:
+        if not qualname:
+            msg = "qualname can't be empty"
+            raise ValueError(msg)
+
+        return cls.build(*qualname.split("."))
+
+    @classmethod
+    def from_module(cls, obj: ModuleType) -> PackageInfo:
+        return cls.from_str(
+            obj.__name__
+            if obj.__file__ is not None and obj.__file__.endswith("__init__.py")
+            else obj.__name__.rpartition(".")[0]
+        )
+
+    @classmethod
+    def build(cls, *parts: str) -> PackageInfo:
+        if not parts:
+            msg = "at least one part should be provided for package name"
+            raise ValueError(msg)
+
         top, *tail = parts
 
         info = cls(None, top)
@@ -35,7 +63,7 @@ class PackageInfo:
         return info
 
     @classmethod
-    def build_or_none(cls, *parts: str) -> t.Optional[Self]:
+    def build_or_none(cls, *parts: str) -> t.Optional[PackageInfo]:
         return cls.build(*parts) if parts else None
 
     @ft.cached_property
@@ -53,29 +81,42 @@ class PackageInfo:
 
 @dataclass(frozen=True)
 class ModuleInfo:
-    parent: t.Optional[PackageInfo]
+    package: t.Optional[PackageInfo]
     name: str
 
     @classmethod
-    def from_str(cls, ref: str) -> Self:
-        *other, last = ref.split(".")
-        return cls(PackageInfo.build_or_none(*other), last)
+    def from_str(cls, qualname: str) -> ModuleInfo:
+        if not qualname:
+            msg = "qualname can't be empty"
+            raise ValueError(msg)
+
+        return cls.build(*qualname.split("."))
 
     @classmethod
-    def from_module(cls, obj: ModuleType) -> Self:
+    def from_module(cls, obj: ModuleType) -> ModuleInfo:
         return cls.from_str(obj.__name__)
+
+    @classmethod
+    def build(cls, *parts: str) -> ModuleInfo:
+        if not parts:
+            msg = "at least one part should be provided for module name"
+            raise ValueError(msg)
+
+        *other, name = parts
+
+        return cls(PackageInfo.build_or_none(*other), name)
+
+    @classmethod
+    def build_or_none(cls, *parts: str) -> t.Optional[ModuleInfo]:
+        return cls.build(*parts) if parts else None
 
     @ft.cached_property
     def parts(self) -> t.Sequence[str]:
-        return *(self.parent.parts if self.parent is not None else ()), self.name
+        return *(self.package.parts if self.package is not None else ()), self.name
 
     @ft.cached_property
     def qualname(self) -> str:
         return ".".join(self.parts)
-
-    @property
-    def package(self) -> t.Optional[PackageInfo]:
-        return self.parent
 
     @ft.cached_property
     def file(self) -> Path:
@@ -90,47 +131,56 @@ class ModuleInfo:
 
 @dataclass(frozen=True)
 class TypeInfo:
-    module: t.Optional[ModuleInfo]
-    ns: t.Sequence[str]
+    name: str
+    module: ModuleInfo
+    namespace: t.Sequence[str] = field(default_factory=tuple)
     type_params: t.Sequence[TypeInfo] = field(default_factory=tuple)
+    type_vars: t.Sequence[str] = field(default_factory=tuple)
 
     @classmethod
-    def from_str(cls, ref: str) -> Self:
-        parser = TypeInfoParser()
-        parser.visit(ast.parse(ref))
+    def from_str(cls, qualname: str) -> TypeInfo:
+        if not qualname:
+            msg = "qualname can't be empty"
+            raise ValueError(msg)
 
-        return cls(
-            module=parser.module,
-            ns=parser.namespace,
-            type_params=parser.type_params,
+        return TypeInfoParser().parse(qualname)
+
+    @classmethod
+    def from_type(cls, type_: RuntimeType) -> TypeInfo:
+        return TypeInfoInspector().inspect(type_)
+
+    @ft.cached_property
+    def parts(self) -> t.Sequence[str]:
+        return *self.module.parts, *self.namespace, self.name
+
+    @ft.cached_property
+    def qualname(self) -> str:
+        return ".".join(self.parts)
+
+    def with_type_params(self, *infos: TypeInfo) -> TypeInfo:
+        if len(infos) > len(self.type_vars):
+            msg = "too many type parameters"
+            raise ValueError(msg, infos, self)
+
+        return replace(
+            self,
+            type_params=(*self.type_params, *infos),
+            type_vars=self.type_vars[len(infos) :],
         )
-
-    @classmethod
-    def from_type(cls, type_: type[object]) -> Self:
-        return cls(ModuleInfo.from_str(type_.__module__), tuple(type_.__qualname__.split(".")))
-
-    @classmethod
-    def build(cls, module: t.Optional[ModuleInfo], *ns: str) -> Self:
-        return cls(module, ns)
 
 
 class TypeInfoParser(ast.NodeVisitor):
     def __init__(self) -> None:
         self.__module: t.Optional[ModuleInfo] = None
-        self.__namespace = list[str]()
+        self.__names = list[str]()
         self.__type_params = list[TypeInfo]()
 
-    @property
-    def module(self) -> t.Optional[ModuleInfo]:
-        return self.__module
-
-    @property
-    def namespace(self) -> t.Sequence[str]:
-        return tuple(self.__namespace)
-
-    @property
-    def type_params(self) -> t.Sequence[TypeInfo]:
-        return tuple(self.__type_params)
+    # NOTE: `ruff` can't work with `override`
+    @override
+    def visit_Constant(self, node: ast.Constant) -> None:  # noqa: N802
+        if node.value is None:  # type: ignore[misc]
+            self.__module = ModuleInfo(None, "builtins")
+            self.__names.append("NoneType")
 
     # NOTE: `ruff` can't work with `override`
     @override
@@ -138,6 +188,10 @@ class TypeInfoParser(ast.NodeVisitor):
         info = self.__get_module_info(node.id)
         if info is not None:
             self.__module = info
+
+        else:
+            self.__module = ModuleInfo(None, "builtins")
+            self.__names.append(node.id)
 
     # NOTE: `ruff` can't work with `override`
     @override
@@ -149,7 +203,7 @@ class TypeInfoParser(ast.NodeVisitor):
             self.__module = info
 
         elif info is None:
-            self.__namespace.append(node.attr)
+            self.__names.append(node.attr)
 
     # NOTE: `ruff` can't work with `override`
     @override
@@ -162,11 +216,31 @@ class TypeInfoParser(ast.NodeVisitor):
         else:
             self.__parse_type_param(node.slice)
 
+    def parse(self, qualname: str) -> TypeInfo:
+        return self.build(ast.parse(qualname))
+
+    def build(self, node: ast.AST) -> TypeInfo:
+        self.visit(node)
+
+        if not self.__names:
+            msg = "invalid AST"
+            raise ValueError(msg, ast.dump(node))
+
+        *namespace, name = self.__names
+
+        return TypeInfo(
+            name=name,
+            module=self.__module if self.__module else ModuleInfo(None, "builtins"),
+            namespace=tuple(namespace),
+            type_params=tuple(self.__type_params),
+            type_vars=(),
+        )
+
     def __get_module_info(self, name: str) -> t.Optional[ModuleInfo]:
-        if self.__namespace:
+        if self.__names:
             return None
 
-        package = PackageInfo(self.__module.parent, self.__module.name) if self.__module is not None else None
+        package = PackageInfo(self.__module.package, self.__module.name) if self.__module is not None else None
         info = ModuleInfo(package, name)
 
         try:
@@ -180,11 +254,51 @@ class TypeInfoParser(ast.NodeVisitor):
 
     def __parse_type_param(self, item: ast.AST) -> None:
         parser = self.__class__()
-        parser.visit(item)
-        self.__type_params.append(
-            TypeInfo(
-                module=parser.module,
-                ns=parser.namespace,
-                type_params=parser.type_params,
+        type_param = parser.build(item)
+
+        self.__type_params.append(type_param)
+
+
+class TypeInfoInspector:
+    def inspect(self, type_: RuntimeType) -> TypeInfo:
+        if isinstance(
+            type_,
+            type,  # type: ignore[misc]
+        ):
+            module = ModuleInfo.from_str(type_.__module__)
+            *namespace, name = type_.__name__.split(".")
+
+            return TypeInfo(
+                name=name,
+                module=module,
+                namespace=tuple(namespace),
+                type_params=tuple(self.inspect(param) for param in self.__get_type_params(type_)),
+                type_vars=tuple(str(param) for param in self.__get_type_vars(type_)),
             )
-        )
+
+        elif isinstance(
+            type_,
+            (
+                t._SpecialForm,  # noqa: SLF001
+                t._BaseGenericAlias,  # type: ignore[attr-defined,misc] # noqa: SLF001
+            ),
+        ):
+            return TypeInfoParser().parse(str(type_))
+
+        else:
+            assert_never(type_)  # noqa: RET503
+
+    def __get_type_params(self, type_: RuntimeType) -> t.Sequence[RuntimeType]:
+        origin: t.Optional[RuntimeType] = t.get_origin(type_)
+        args: t.Optional[t.Sequence[RuntimeType]] = t.get_args(type_)
+
+        # patch Union[T, None] => Optional[T]
+        if origin is t.Union and args is not None and len(args) == 2 and args[1] is type(None):  # noqa: PLR2004
+            return args[:1]
+
+        return args or ()
+
+    def __get_type_vars(self, type_: RuntimeType) -> t.Sequence[RuntimeType]:
+        value: object = getattr(type_, "__parameters__", None)
+        assert value is None or isinstance(value, tuple)
+        return value or ()

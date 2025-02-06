@@ -37,156 +37,156 @@ class Predefs:
 
     @cached_property
     def async_context_manager_decorator(self) -> TypeInfo:
-        return TypeInfo.build(self.contextlib_module, "asynccontextmanager")
+        return TypeInfo("asynccontextmanager", self.contextlib_module)
 
     @cached_property
     def context_manager_decorator(self) -> TypeInfo:
-        return TypeInfo.build(self.contextlib_module, "contextmanager")
+        return TypeInfo("contextmanager", self.contextlib_module)
 
     @cached_property
     def none_type(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "NoneType")
+        return TypeInfo("NoneType", self.builtins_module)
 
     @cached_property
     def bool(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "bool")
+        return TypeInfo("bool", self.builtins_module)
 
     @cached_property
     def int(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "int")
+        return TypeInfo("int", self.builtins_module)
 
     @cached_property
     def float(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "float")
+        return TypeInfo("float", self.builtins_module)
 
     @cached_property
     def str(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "str")
+        return TypeInfo("str", self.builtins_module)
 
     @cached_property
     def list(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "list")
+        return TypeInfo("list", self.builtins_module)
 
     @cached_property
     def dict(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "dict")
+        return TypeInfo("dict", self.builtins_module)
 
     @cached_property
     def set(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "set")
+        return TypeInfo("set", self.builtins_module)
 
     @cached_property
     def property(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "property")
+        return TypeInfo("property", self.builtins_module)
 
     @cached_property
     def classmethod(self) -> TypeInfo:
-        return TypeInfo.build(self.builtins_module, "classmethod")
+        return TypeInfo("classmethod", self.builtins_module)
 
     @cached_property
     def abc_meta(self) -> TypeInfo:
-        return TypeInfo.build(self.abc_module, "ABCMeta")
+        return TypeInfo("ABCMeta", self.abc_module)
 
     @cached_property
     def abstractmethod(self) -> TypeInfo:
-        return TypeInfo.build(self.abc_module, "abstractmethod")
+        return TypeInfo("abstractmethod", self.abc_module)
 
     @cached_property
     def generic(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Generic")
+        return TypeInfo("Generic", self.typing_module)
 
     @cached_property
     def final_decorator(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "final")
+        return TypeInfo("final", self.typing_module)
 
     @cached_property
     def final(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Final")
+        return TypeInfo("Final", self.typing_module)
 
     @cached_property
     def class_var(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "ClassVar")
+        return TypeInfo("ClassVar", self.typing_module)
 
     @cached_property
     def type(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Type")
+        return TypeInfo("Type", self.typing_module)
 
     @cached_property
     def tuple(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Tuple")
+        return TypeInfo("Tuple", self.typing_module)
 
     @cached_property
     def container(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Container")
+        return TypeInfo("Container", self.typing_module)
 
     @cached_property
     def sequence(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Sequence")
+        return TypeInfo("Sequence", self.typing_module)
 
     @cached_property
     def mutable_sequence(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "MutableSequence")
+        return TypeInfo("MutableSequence", self.typing_module)
 
     @cached_property
     def dataclass_decorator(self) -> TypeInfo:
-        return TypeInfo.build(self.dataclasses_module, "dataclass")
+        return TypeInfo("dataclass", self.dataclasses_module)
 
     @cached_property
     def typed_dict(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "TypedDict")
+        return TypeInfo("TypedDict", self.typing_module)
 
     @cached_property
     def mapping(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Mapping")
+        return TypeInfo("Mapping", self.typing_module)
 
     @cached_property
     def mutable_mapping(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "MutableMapping")
+        return TypeInfo("MutableMapping", self.typing_module)
 
     @cached_property
     def optional(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Optional")
+        return TypeInfo("Optional", self.typing_module)
 
     @cached_property
     def union(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Union")
+        return TypeInfo("Union", self.typing_module)
 
     @cached_property
     def context_manager(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "ContextManager")
+        return TypeInfo("ContextManager", self.typing_module)
 
     @cached_property
     def async_context_manager(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "AsyncContextManager")
+        return TypeInfo("AsyncContextManager", self.typing_module)
 
     @cached_property
     def iterator(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Iterator")
+        return TypeInfo("Iterator", self.typing_module)
 
     @cached_property
     def async_iterator(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "AsyncIterator")
+        return TypeInfo("AsyncIterator", self.typing_module)
 
     @cached_property
     def iterable(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Iterable")
+        return TypeInfo("Iterable", self.typing_module)
 
     @cached_property
     def async_iterable(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "AsyncIterable")
+        return TypeInfo("AsyncIterable", self.typing_module)
 
     @cached_property
     def literal(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "Literal")
+        return TypeInfo("Literal", self.typing_module)
 
     @cached_property
     def no_return(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "NoReturn")
+        return TypeInfo("NoReturn", self.typing_module)
 
     @cached_property
     def overload_decorator(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "overload")
+        return TypeInfo("overload", self.typing_module)
 
     @cached_property
     def override_decorator(self) -> TypeInfo:
-        return TypeInfo.build(self.typing_module, "override")
+        return TypeInfo("override", self.typing_module)

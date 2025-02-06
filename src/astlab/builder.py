@@ -31,7 +31,7 @@ from itertools import chain
 from astlab._typing import Self, override
 from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Expr, Stmt, TypeDefBuilder, TypeRef
 from astlab.context import BuildContext
-from astlab.info import ModuleInfo, PackageInfo, TypeInfo
+from astlab.info import ModuleInfo, PackageInfo, RuntimeType, TypeInfo
 from astlab.predef import get_predefs
 from astlab.resolver import DefaultASTResolver
 from astlab.writer import render_module, write_module
@@ -321,8 +321,8 @@ class _BaseASTBuilder:
     ) -> CallASTBuilder:
         return self.attr(func).call(args, kwargs)
 
-    def type_ref(self, base: t.Union[type[object], TypeInfo]) -> ClassRefBuilder:
-        return ClassRefBuilder(self._resolver, base if isinstance(base, TypeInfo) else TypeInfo.from_type(base))
+    def type_ref(self, origin: t.Union[RuntimeType, TypeInfo]) -> ClassRefBuilder:
+        return ClassRefBuilder(self._resolver, origin if isinstance(origin, TypeInfo) else TypeInfo.from_type(origin))
 
     def generic_type(self, generic: TypeRef, *args: TypeRef) -> ast.expr:
         if len(args) == 0:
@@ -884,7 +884,7 @@ class ClassBodyASTBuilder(_BaseScopeBodyASTBuilder, TypeDefBuilder):
 class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefBuilder):
     def __init__(self, context: BuildContext, resolver: ASTResolver, name: str) -> None:
         super().__init__(context, resolver, name)
-        self.__info = TypeInfo.build(self._context.module, *self._context.namespace, name)
+        self.__info = TypeInfo(name=name, module=self._context.module, namespace=self._context.namespace)
         self.__bases = list[TypeRef]()
         self.__decorators = list[TypeRef]()
         self.__keywords = dict[str, TypeRef]()

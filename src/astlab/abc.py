@@ -15,7 +15,7 @@ import abc
 import ast
 import typing as t
 
-from astlab.info import TypeInfo
+from astlab.info import RuntimeType, TypeInfo
 
 
 class ASTExpressionBuilder(metaclass=abc.ABCMeta):
@@ -45,8 +45,7 @@ Expr = t.Union[ast.expr, ASTExpressionBuilder]
 Stmt = t.Union[ast.stmt, ASTStatementBuilder, Expr]
 TypeRef = t.Union[
     Expr,
-    type[object],
-    t._SpecialForm,  # noqa: SLF001
+    RuntimeType,
     TypeInfo,
     TypeDefBuilder,
 ]
