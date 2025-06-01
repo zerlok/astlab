@@ -25,6 +25,7 @@ import typing as t
 import warnings
 from collections import defaultdict, deque
 from contextlib import contextmanager
+from dataclasses import dataclass
 from functools import cached_property
 from itertools import chain
 
@@ -46,7 +47,7 @@ def build_package(
 ) -> PackageASTBuilder:
     """Start python package builder."""
 
-    pkg_info = info if isinstance(info, PackageInfo) else PackageInfo(parent, info)
+    pkg_info = info if isinstance(info, PackageInfo) else PackageInfo(info, parent)
     context = BuildContext([], defaultdict(set), deque())
 
     return PackageASTBuilder(context, resolver if resolver is not None else DefaultASTResolver(context), pkg_info, {})
@@ -59,19 +60,13 @@ def build_module(
 ) -> ModuleASTBuilder:
     """Start python module builder."""
 
-    mod_info = info if isinstance(info, ModuleInfo) else ModuleInfo(parent, info)
+    mod_info = info if isinstance(info, ModuleInfo) else ModuleInfo(info, parent)
     context = BuildContext([], defaultdict(set), deque())
 
     return ModuleASTBuilder(context, resolver if resolver is not None else DefaultASTResolver(context), mod_info, [])
 
 
-class Visitable(metaclass=abc.ABCMeta):
-    @abc.abstractmethod
-    def accept(self, visitor: BuilderVisitor) -> None:
-        raise NotImplementedError
-
-
-class AttrASTBuilder(ASTExpressionBuilder, Visitable):
+class AttrASTBuilder(ASTExpressionBuilder):
     def __init__(self, resolver: ASTResolver, head: t.Union[str, TypeRef], *tail: str) -> None:
         self.__resolver = resolver
         self.__head = head
@@ -121,10 +116,6 @@ class AttrASTBuilder(ASTExpressionBuilder, Visitable):
             ast.Name(id=self.__head) if isinstance(self.__head, str) else self.__head,
             *self.__tail,
         )
-
-    @override
-    def accept(self, visitor: BuilderVisitor) -> None:
-        return visitor.visit_attr(self)
 
 
 # noinspection PyTypeChecker
@@ -264,7 +255,10 @@ class _BaseASTBuilder:
                 elt=self._resolver.expr(item),
                 generators=[
                     ast.comprehension(
-                        target=self._resolver.expr(target), iter=self._resolver.expr(items), ifs=[], is_async=False
+                        target=self._resolver.expr(target),
+                        iter=self._resolver.expr(items),
+                        ifs=[],
+                        is_async=False,
                     )
                 ],
             )
@@ -828,7 +822,7 @@ class ClassRefBuilder(ASTExpressionBuilder):
         args: t.Optional[t.Sequence[Expr]] = None,
         kwargs: t.Optional[t.Mapping[str, Expr]] = None,
     ) -> CallASTBuilder:
-        return self.attr().call(args, kwargs)
+        return CallASTBuilder(self.__resolver, self, args, kwargs)
 
     @override
     def build(self) -> ast.expr:
@@ -857,6 +851,9 @@ class ClassBodyASTBuilder(_BaseScopeBodyASTBuilder, TypeDefBuilder):
     def method_def(self, name: str) -> MethodHeaderASTBuilder:
         return MethodHeaderASTBuilder(self._context, self._resolver, name)
 
+    def new_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__new__")
+
     def init_def(self) -> MethodHeaderASTBuilder:
         return self.method_def("__init__").returns(self.const(None))
 
@@ -873,11 +870,47 @@ class ClassBodyASTBuilder(_BaseScopeBodyASTBuilder, TypeDefBuilder):
 
             yield init_body
 
+    def call_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__call__")
+
+    def str_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__str__").returns(str)
+
+    def repr_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__repr__").returns(str)
+
+    def hash_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__hash__").returns(bool)
+
+    def eq_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__eq__").returns(bool)
+
+    def ne_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__ne__").returns(bool)
+
+    def ge_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__ge__").returns(bool)
+
+    def gt_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__gt__").returns(bool)
+
+    def le_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__le__").returns(bool)
+
+    def lt_def(self) -> MethodHeaderASTBuilder:
+        return self.method_def("__lt__").returns(bool)
+
     def property_getter_def(self, name: str) -> FuncHeaderASTBuilder:
         return self.func_def(name).arg("self").decorators(get_predefs().property)
 
     def property_setter_def(self, name: str) -> FuncHeaderASTBuilder:
         return self.func_def(name).arg("self").decorators(self.attr(name, "setter"))
+
+
+@dataclass(frozen=True)
+class TypeVar:
+    name: str
+    bound: t.Optional[TypeRef]
 
 
 # noinspection PyTypeChecker
@@ -888,6 +921,7 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefB
         self.__bases = list[TypeRef]()
         self.__decorators = list[TypeRef]()
         self.__keywords = dict[str, TypeRef]()
+        self.__type_vars = list[TypeVar]()
         self.__docs = list[str]()
 
     @override
@@ -898,6 +932,12 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefB
     @override
     def ref(self) -> ClassRefBuilder:
         return ClassRefBuilder(self._resolver, self.__info)
+
+    if sys.version_info >= (3, 12):
+
+        def type_param(self, name: str, bound: t.Optional[TypeRef] = None) -> Self:
+            self.__type_vars.append(TypeVar(name=name, bound=bound))
+            return self
 
     def docstring(self, value: t.Optional[str]) -> Self:
         if value:
@@ -944,11 +984,21 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefB
                     name=self._context.name,
                     bases=[self._resolver.expr(base) for base in self.__bases],
                     keywords=[
-                        ast.keyword(arg=key, value=self._resolver.expr(value)) for key, value in self.__keywords.items()
+                        ast.keyword(
+                            arg=key,
+                            value=self._resolver.expr(value),
+                        )
+                        for key, value in self.__keywords.items()
                     ],
                     body=self._resolver.body(*self._context.current_body, docs=self.__docs, pass_if_empty=True),
                     decorator_list=self.__build_decorators(),
-                    type_params=[],
+                    type_params=[
+                        ast.TypeVar(
+                            name=type_var.name,
+                            bound=self._resolver.expr(type_var.bound) if type_var.bound is not None else None,
+                        )
+                        for type_var in self.__type_vars
+                    ],
                 ),
             )
 
@@ -961,7 +1011,11 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefB
                     name=self._context.name,
                     bases=[self._resolver.expr(base) for base in self.__bases],
                     keywords=[
-                        ast.keyword(arg=key, value=self._resolver.expr(value)) for key, value in self.__keywords.items()
+                        ast.keyword(
+                            arg=key,
+                            value=self._resolver.expr(value),
+                        )
+                        for key, value in self.__keywords.items()
                     ],
                     body=self._resolver.body(*self._context.current_body, docs=self.__docs, pass_if_empty=True),
                     decorator_list=self.__build_decorators(),
@@ -1269,13 +1323,13 @@ class PackageASTBuilder(t.ContextManager["PackageASTBuilder"]):
         return self.__info
 
     def sub(self, name: str) -> Self:
-        return self.__class__(self.__context, self.__resolver, PackageInfo(self.__info, name), self.__modules)
+        return self.__class__(self.__context, self.__resolver, PackageInfo(name, self.__info), self.__modules)
 
     def init(self) -> ModuleASTBuilder:
         return self.module("__init__")
 
     def module(self, name: str) -> ModuleASTBuilder:
-        info = ModuleInfo(self.__info, name)
+        info = ModuleInfo(name, self.__info)
 
         builder = self.__modules.get(info)
         if builder is None:
@@ -1305,49 +1359,3 @@ class PackageASTBuilder(t.ContextManager["PackageASTBuilder"]):
     ) -> None:
         for builder in self.iter_modules():
             builder.write(mode=mode, mkdir=mkdir, exist_ok=exist_ok)
-
-
-class BuilderVisitor(metaclass=abc.ABCMeta):
-    @abc.abstractmethod
-    def visit_package(self, builder: PackageASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_module(self, builder: ModuleASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_attr(self, builder: AttrASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_call(self, builder: CallASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_class_header(self, builder: ClassHeaderASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_class_body(self, builder: ClassBodyASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_for_header(self, builder: ForHeaderASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_func_header(self, builder: FuncHeaderASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_func_body(self, builder: FuncBodyASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_method_header(self, builder: MethodHeaderASTBuilder) -> None:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def visit_method_body(self, builder: MethodBodyASTBuilder) -> None:
-        raise NotImplementedError

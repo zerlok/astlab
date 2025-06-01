@@ -6,7 +6,7 @@ from types import ModuleType
 import pytest
 
 from astlab import abc as astlab_abc
-from astlab.info import ModuleInfo, PackageInfo, RuntimeType, TypeInfo
+from astlab.info import ModuleInfo, PackageInfo, RuntimeType, TypeInfo, builtins_module, none_type_info
 
 
 class TestPackageInfo:
@@ -19,11 +19,11 @@ class TestPackageInfo:
             ),
             pytest.param(
                 ["pyprotostuben"],
-                PackageInfo(None, "pyprotostuben"),
+                PackageInfo("pyprotostuben"),
             ),
             pytest.param(
                 ["pyprotostuben", "python"],
-                PackageInfo(PackageInfo(None, "pyprotostuben"), "python"),
+                PackageInfo("python", PackageInfo("pyprotostuben")),
             ),
         ],
     )
@@ -34,12 +34,12 @@ class TestPackageInfo:
         ("value", "expected"),
         [
             pytest.param(
-                PackageInfo(None, "pyprotostuben"),
+                PackageInfo("pyprotostuben"),
                 None,
             ),
             pytest.param(
-                PackageInfo(PackageInfo(None, "pyprotostuben"), "python"),
-                PackageInfo(None, "pyprotostuben"),
+                PackageInfo("python", PackageInfo("pyprotostuben")),
+                PackageInfo("pyprotostuben"),
             ),
         ],
     )
@@ -50,11 +50,11 @@ class TestPackageInfo:
         ("value", "expected"),
         [
             pytest.param(
-                PackageInfo(None, "pyprotostuben"),
+                PackageInfo("pyprotostuben"),
                 Path("pyprotostuben"),
             ),
             pytest.param(
-                PackageInfo(PackageInfo(None, "pyprotostuben"), "python"),
+                PackageInfo("python", PackageInfo("pyprotostuben")),
                 Path("pyprotostuben") / "python",
             ),
         ],
@@ -66,11 +66,11 @@ class TestPackageInfo:
         ("value", "expected"),
         [
             pytest.param(
-                PackageInfo(None, "pyprotostuben"),
+                PackageInfo("pyprotostuben"),
                 ("pyprotostuben",),
             ),
             pytest.param(
-                PackageInfo(PackageInfo(None, "pyprotostuben"), "python"),
+                PackageInfo("python", PackageInfo("pyprotostuben")),
                 ("pyprotostuben", "python"),
             ),
         ],
@@ -82,11 +82,11 @@ class TestPackageInfo:
         ("value", "expected"),
         [
             pytest.param(
-                PackageInfo(None, "pyprotostuben"),
+                PackageInfo("pyprotostuben"),
                 "pyprotostuben",
             ),
             pytest.param(
-                PackageInfo(PackageInfo(None, "pyprotostuben"), "python"),
+                PackageInfo("python", PackageInfo("pyprotostuben")),
                 "pyprotostuben.python",
             ),
         ],
@@ -101,11 +101,11 @@ class TestModuleInfo:
         [
             pytest.param(
                 "builtins",
-                ModuleInfo(None, "builtins"),
+                ModuleInfo("builtins"),
             ),
             pytest.param(
                 "pyprotostuben.python.info",
-                ModuleInfo(PackageInfo(PackageInfo(None, "pyprotostuben"), "python"), "info"),
+                ModuleInfo("info", PackageInfo("python", PackageInfo("pyprotostuben"))),
             ),
         ],
     )
@@ -117,11 +117,11 @@ class TestModuleInfo:
         [
             pytest.param(
                 math,
-                ModuleInfo(None, "math"),
+                ModuleInfo("math"),
             ),
             pytest.param(
                 astlab_abc,
-                ModuleInfo(PackageInfo(None, "astlab"), "abc"),
+                ModuleInfo("abc", PackageInfo("astlab")),
             ),
         ],
     )
@@ -132,12 +132,12 @@ class TestModuleInfo:
         ("value", "expected"),
         [
             pytest.param(
-                ModuleInfo(None, "math"),
+                ModuleInfo("math"),
                 None,
             ),
             pytest.param(
-                ModuleInfo(PackageInfo(PackageInfo(None, "pyprotostuben"), "codegen"), "abc"),
-                PackageInfo(PackageInfo(None, "pyprotostuben"), "codegen"),
+                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
+                PackageInfo("codegen", PackageInfo("pyprotostuben")),
             ),
         ],
     )
@@ -148,11 +148,11 @@ class TestModuleInfo:
         ("value", "expected"),
         [
             pytest.param(
-                ModuleInfo(None, "math"),
+                ModuleInfo("math"),
                 Path("math.py"),
             ),
             pytest.param(
-                ModuleInfo(PackageInfo(PackageInfo(None, "pyprotostuben"), "codegen"), "abc"),
+                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
                 Path("pyprotostuben") / "codegen" / "abc.py",
             ),
         ],
@@ -164,11 +164,11 @@ class TestModuleInfo:
         ("value", "expected"),
         [
             pytest.param(
-                ModuleInfo(None, "math"),
+                ModuleInfo("math"),
                 Path("math.pyi"),
             ),
             pytest.param(
-                ModuleInfo(PackageInfo(PackageInfo(None, "pyprotostuben"), "codegen"), "abc"),
+                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
                 Path("pyprotostuben") / "codegen" / "abc.pyi",
             ),
         ],
@@ -180,11 +180,11 @@ class TestModuleInfo:
         ("value", "expected"),
         [
             pytest.param(
-                ModuleInfo(None, "math"),
+                ModuleInfo("math"),
                 ("math",),
             ),
             pytest.param(
-                ModuleInfo(PackageInfo(PackageInfo(None, "pyprotostuben"), "codegen"), "abc"),
+                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
                 ("pyprotostuben", "codegen", "abc"),
             ),
         ],
@@ -196,11 +196,11 @@ class TestModuleInfo:
         ("value", "expected"),
         [
             pytest.param(
-                ModuleInfo(None, "math"),
+                ModuleInfo("math"),
                 "math",
             ),
             pytest.param(
-                ModuleInfo(PackageInfo(PackageInfo(None, "pyprotostuben"), "codegen"), "abc"),
+                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
                 "pyprotostuben.codegen.abc",
             ),
         ],
@@ -215,35 +215,35 @@ class TestTypeInfo:
         [
             pytest.param(
                 "builtins.int",
-                TypeInfo("int", ModuleInfo(None, "builtins")),
+                TypeInfo("int", ModuleInfo("builtins")),
             ),
             pytest.param(
                 "tests.unit.test_info.TestTypeInfo",
-                TypeInfo("TestTypeInfo", ModuleInfo(PackageInfo(PackageInfo(None, "tests"), "unit"), "test_info")),
+                TypeInfo("TestTypeInfo", ModuleInfo("test_info", PackageInfo("unit", PackageInfo("tests")))),
             ),
             pytest.param(
                 "typing.Optional",
                 TypeInfo(
                     name="Optional",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                 ),
             ),
             pytest.param(
                 "typing.Optional[builtins.int]",
                 TypeInfo(
                     name="Optional",
-                    module=ModuleInfo(None, "typing"),
-                    type_params=(TypeInfo("int", ModuleInfo(None, "builtins")),),
+                    module=ModuleInfo("typing"),
+                    type_params=(TypeInfo("int", ModuleInfo("builtins")),),
                 ),
             ),
             pytest.param(
                 "typing.Union[builtins.int, builtins.str]",
                 TypeInfo(
                     name="Union",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                     type_params=(
-                        TypeInfo("int", ModuleInfo(None, "builtins")),
-                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                        TypeInfo("int", ModuleInfo("builtins")),
+                        TypeInfo("str", ModuleInfo("builtins")),
                     ),
                 ),
             ),
@@ -251,11 +251,11 @@ class TestTypeInfo:
                 "typing.Union[builtins.int, builtins.str, None]",
                 TypeInfo(
                     name="Union",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                     type_params=(
-                        TypeInfo("int", ModuleInfo(None, "builtins")),
-                        TypeInfo("str", ModuleInfo(None, "builtins")),
-                        TypeInfo("NoneType", ModuleInfo(None, "builtins")),
+                        TypeInfo("int", ModuleInfo("builtins")),
+                        TypeInfo("str", builtins_module()),
+                        none_type_info(),
                     ),
                 ),
             ),
@@ -263,10 +263,10 @@ class TestTypeInfo:
                 "typing.Mapping[builtins.int, builtins.str]",
                 TypeInfo(
                     name="Mapping",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                     type_params=(
-                        TypeInfo("int", ModuleInfo(None, "builtins")),
-                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                        TypeInfo("int", builtins_module()),
+                        TypeInfo("str", builtins_module()),
                     ),
                 ),
             ),
@@ -274,13 +274,13 @@ class TestTypeInfo:
                 "typing.Mapping[builtins.int, typing.Optional[builtins.str]]",
                 TypeInfo(
                     name="Mapping",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                     type_params=(
-                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo("int", builtins_module()),
                         TypeInfo(
                             name="Optional",
-                            module=ModuleInfo(None, "typing"),
-                            type_params=(TypeInfo("str", ModuleInfo(None, "builtins")),),
+                            module=ModuleInfo("typing"),
+                            type_params=(TypeInfo("str", builtins_module()),),
                         ),
                     ),
                 ),
@@ -295,28 +295,28 @@ class TestTypeInfo:
         [
             pytest.param(
                 int,
-                TypeInfo("int", ModuleInfo(None, "builtins")),
+                TypeInfo("int", builtins_module()),
             ),
             pytest.param(
                 TypeInfo,
-                TypeInfo("TypeInfo", ModuleInfo(PackageInfo(None, "astlab"), "info")),
+                TypeInfo("TypeInfo", ModuleInfo("info", PackageInfo("astlab"))),
             ),
             pytest.param(
                 t.Optional[int],
                 TypeInfo(
                     name="Optional",
-                    module=ModuleInfo(None, "typing"),
-                    type_params=(TypeInfo("int", ModuleInfo(None, "builtins")),),
+                    module=ModuleInfo("typing"),
+                    type_params=(TypeInfo("int", builtins_module()),),
                 ),
             ),
             pytest.param(
                 t.Union[int, str],
                 TypeInfo(
                     name="Union",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                     type_params=(
-                        TypeInfo("int", ModuleInfo(None, "builtins")),
-                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                        TypeInfo("int", builtins_module()),
+                        TypeInfo("str", builtins_module()),
                     ),
                 ),
             ),
@@ -324,11 +324,11 @@ class TestTypeInfo:
                 t.Union[int, str, None],
                 TypeInfo(
                     name="Union",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                     type_params=(
-                        TypeInfo("int", ModuleInfo(None, "builtins")),
-                        TypeInfo("str", ModuleInfo(None, "builtins")),
-                        TypeInfo("NoneType", ModuleInfo(None, "builtins")),
+                        TypeInfo("int", builtins_module()),
+                        TypeInfo("str", builtins_module()),
+                        none_type_info(),
                     ),
                 ),
             ),
@@ -336,10 +336,10 @@ class TestTypeInfo:
                 t.Mapping[int, str],
                 TypeInfo(
                     name="Mapping",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                     type_params=(
-                        TypeInfo("int", ModuleInfo(None, "builtins")),
-                        TypeInfo("str", ModuleInfo(None, "builtins")),
+                        TypeInfo("int", ModuleInfo("builtins")),
+                        TypeInfo("str", ModuleInfo("builtins")),
                     ),
                 ),
             ),
@@ -347,13 +347,13 @@ class TestTypeInfo:
                 t.Mapping[int, t.Optional[str]],
                 TypeInfo(
                     name="Mapping",
-                    module=ModuleInfo(None, "typing"),
+                    module=ModuleInfo("typing"),
                     type_params=(
-                        TypeInfo("int", ModuleInfo(None, "builtins")),
+                        TypeInfo("int", ModuleInfo("builtins")),
                         TypeInfo(
                             name="Optional",
-                            module=ModuleInfo(None, "typing"),
-                            type_params=(TypeInfo("str", ModuleInfo(None, "builtins")),),
+                            module=ModuleInfo("typing"),
+                            type_params=(TypeInfo("str", ModuleInfo("builtins")),),
                         ),
                     ),
                 ),
@@ -362,3 +362,19 @@ class TestTypeInfo:
     )
     def test_from_type_ok(self, value: RuntimeType, expected: TypeInfo) -> None:
         assert TypeInfo.from_type(value) == expected
+
+    @pytest.mark.parametrize(
+        "annotation",
+        [
+            pytest.param("builtins.int"),
+            pytest.param("tests.unit.test_info.TestTypeInfo"),
+            pytest.param("typing.Optional"),
+            pytest.param("typing.Optional[builtins.int]"),
+            pytest.param("typing.Union[builtins.int, builtins.str]"),
+            pytest.param("typing.Union[builtins.int, builtins.str, None]"),
+            pytest.param("typing.Mapping[builtins.int, builtins.str]"),
+            pytest.param("typing.Mapping[builtins.int, typing.Optional[builtins.str]]"),
+        ],
+    )
+    def test_from_str_to_annotation_are_same(self, annotation: str) -> None:
+        assert TypeInfo.from_str(annotation).annotation() == annotation

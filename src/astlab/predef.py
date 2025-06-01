@@ -6,7 +6,7 @@ __all__ = [
 
 from functools import cache, cached_property
 
-from astlab.info import ModuleInfo, TypeInfo
+from astlab.info import ModuleInfo, TypeInfo, builtins_module, none_type_info
 
 
 @cache  # type: ignore[misc]
@@ -17,23 +17,23 @@ def get_predefs() -> Predefs:
 class Predefs:
     @cached_property
     def typing_module(self) -> ModuleInfo:
-        return ModuleInfo(None, "typing")
+        return ModuleInfo("typing")
 
     @cached_property
     def dataclasses_module(self) -> ModuleInfo:
-        return ModuleInfo(None, "dataclasses")
+        return ModuleInfo("dataclasses")
 
     @cached_property
     def builtins_module(self) -> ModuleInfo:
-        return ModuleInfo(None, "builtins")
+        return builtins_module()
 
     @cached_property
     def abc_module(self) -> ModuleInfo:
-        return ModuleInfo(None, "abc")
+        return ModuleInfo("abc")
 
     @cached_property
     def contextlib_module(self) -> ModuleInfo:
-        return ModuleInfo(None, "contextlib")
+        return ModuleInfo("contextlib")
 
     @cached_property
     def async_context_manager_decorator(self) -> TypeInfo:
@@ -45,7 +45,7 @@ class Predefs:
 
     @cached_property
     def none_type(self) -> TypeInfo:
-        return TypeInfo("NoneType", self.builtins_module)
+        return none_type_info()
 
     @cached_property
     def bool(self) -> TypeInfo:
