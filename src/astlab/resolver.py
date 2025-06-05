@@ -8,53 +8,40 @@ import ast
 import typing as t
 from dataclasses import replace
 from itertools import chain
-from types import GenericAlias
 
 from astlab._typing import assert_never, override
-from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefBuilder, TypeRef
-from astlab.info import TypeInfo
+from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefinitionBuilder, TypeRef
+from astlab.types import LiteralTypeInfo, NamedTypeInfo, TypeInfo, TypeInspector
 
 if t.TYPE_CHECKING:
     from astlab.context import BuildContext
 
 
 class DefaultASTResolver(ASTResolver):
-    def __init__(self, context: BuildContext) -> None:
+    def __init__(self, context: BuildContext, inspector: t.Optional[TypeInspector] = None) -> None:
         self.__context = context
+        self.__inspector = inspector or TypeInspector()
 
     @override
-    def expr(self, ref: TypeRef, *tail: str) -> ast.expr:
+    def resolve_expr(self, ref: TypeRef, *tail: str) -> ast.expr:
         if isinstance(ref, ast.expr):
             return self.__chain_attr(ref, *tail)
 
         elif isinstance(ref, ASTExpressionBuilder):
-            return self.__chain_attr(ref.build(), *tail)
+            return self.__chain_attr(ref.build_expr(), *tail)
 
-        # NOTE: type ignore fixes `Expression type contains "Any" (has type "type[type]")`
-        elif isinstance(
-            ref,
-            (
-                type,  # type: ignore[misc]
-                GenericAlias,  # type: ignore[misc]
-                t._SpecialForm,  # noqa: SLF001
-                t._BaseGenericAlias,  # type: ignore[misc,attr-defined] # noqa: SLF001
-            ),
-        ):
-            info = TypeInfo.from_type(ref)  # type: ignore[misc]
-            return self.__type_info_expr(info, *tail)
-
-        elif isinstance(ref, TypeInfo):
+        elif isinstance(ref, (NamedTypeInfo, LiteralTypeInfo)):
             return self.__type_info_expr(ref, *tail)
 
-        elif isinstance(ref, TypeDefBuilder):
+        elif isinstance(ref, TypeDefinitionBuilder):
             return self.__type_info_expr(ref.info, *tail)
 
         else:
-            # NOTE: it's `NoReturn` type
-            assert_never(ref)  # noqa: RET503
+            info = self.__inspector.inspect(ref)
+            return self.__type_info_expr(info, *tail)
 
     @override
-    def body(
+    def resolve_stmts(
         self,
         *stmts: t.Optional[Stmt],
         docs: t.Optional[t.Sequence[str]] = None,
@@ -62,11 +49,11 @@ class DefaultASTResolver(ASTResolver):
     ) -> list[ast.stmt]:
         body = list(
             chain.from_iterable(
-                stmt.build()
+                stmt.build_stmt()
                 if isinstance(stmt, ASTStatementBuilder)
                 else (stmt,)
                 if isinstance(stmt, ast.stmt)
-                else (ast.Expr(value=self.expr(stmt)),)
+                else (ast.Expr(value=self.resolve_expr(stmt)),)
                 for stmt in stmts
                 if stmt is not None
             )
@@ -81,7 +68,7 @@ class DefaultASTResolver(ASTResolver):
         return body
 
     def __type_info_expr(self, info: TypeInfo, *tail: str) -> ast.expr:
-        if info.type_vars:
+        if isinstance(info, NamedTypeInfo) and info.type_vars:
             msg = "can't build expr for type with type vars"
             raise ValueError(msg, info)
 
@@ -94,7 +81,11 @@ class DefaultASTResolver(ASTResolver):
         )
 
         origin = self.__chain_attr(ast.Name(id=head), *middle, *tail)
-        args = [self.__type_info_attr(param) for param in info.type_params]
+        args = (
+            [self.__type_info_attr(param) for param in info.type_params]
+            if isinstance(info, NamedTypeInfo)
+            else [ast.Constant(value=value) for value in info.values]
+        )
 
         return (
             ast.Subscript(
@@ -106,18 +97,30 @@ class DefaultASTResolver(ASTResolver):
         )
 
     def __resolve_dependency(self, info: TypeInfo) -> TypeInfo:
-        type_params = tuple(self.__resolve_dependency(param) for param in info.type_params)
+        if isinstance(info, NamedTypeInfo):
+            if info.module == self.__context.module:
+                ns = (
+                    info.namespace[len(self.__context.namespace) :]
+                    if info.namespace[: len(self.__context.namespace)] == self.__context.namespace
+                    else info.namespace
+                )
 
-        if info.module != self.__context.module:
+            else:
+                self.__context.current_dependencies.add(info.module)
+                ns = info.namespace
+
+            return replace(
+                info,
+                namespace=ns,
+                type_params=tuple(self.__resolve_dependency(param) for param in info.type_params),
+            )
+
+        elif isinstance(info, LiteralTypeInfo):
             self.__context.current_dependencies.add(info.module)
-            return replace(info, type_params=type_params)
+            return info
 
-        ns = self.__context.namespace
-        return replace(
-            info,
-            namespace=info.namespace[len(ns) :] if info.namespace[: len(ns)] == ns else info.namespace,
-            type_params=type_params,
-        )
+        else:
+            assert_never(info)  # noqa: RET503
 
     def __chain_attr(self, expr: ast.expr, *tail: str) -> ast.expr:
         for attr in tail:

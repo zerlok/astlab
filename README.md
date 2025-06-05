@@ -60,7 +60,7 @@ class Bar:
     spam: builtins.int
 ```
 
-Built AST:
+Dump built AST:
 
 ```python
 Module(

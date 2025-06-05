@@ -1,5 +1,5 @@
 __all__ = [
-    "import_module",
+    "import_module_path",
     "iter_package_modules",
     "parse_module",
     "walk_package_modules",
@@ -27,9 +27,14 @@ def iter_package_modules(path: Path) -> t.Iterable[Path]:
             yield sub
 
 
-def import_module(path: Path) -> ModuleType:
+def import_module_path(path: Path) -> ModuleType:
+    # Find the shortest relative path to module.
     relpath, src = min((path.relative_to(pypath), Path(pypath)) for pypath in sys.path if path.is_relative_to(pypath))
+
+    # Build qualified name using the shortest relative path.
+    # Avoid `.py` in last part.
     qualname = ".".join((*relpath.parts[:-1], relpath.stem))
+
     return importlib.import_module(qualname)
 
 

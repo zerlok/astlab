@@ -6,7 +6,7 @@ __all__ = [
     "ASTStatementBuilder",
     "Expr",
     "Stmt",
-    "TypeDefBuilder",
+    "TypeDefinitionBuilder",
     "TypeRef",
 ]
 
@@ -15,22 +15,25 @@ import abc
 import ast
 import typing as t
 
-from astlab.info import RuntimeType, TypeInfo
+from astlab.types import RuntimeType, TypeInfo
+
+if t.TYPE_CHECKING:
+    from astlab._typing import TypeAlias
 
 
 class ASTExpressionBuilder(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def build(self) -> ast.expr:
+    def build_expr(self) -> ast.expr:
         raise NotImplementedError
 
 
 class ASTStatementBuilder(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def build(self) -> t.Sequence[ast.stmt]:
+    def build_stmt(self) -> t.Sequence[ast.stmt]:
         raise NotImplementedError
 
 
-class TypeDefBuilder(metaclass=abc.ABCMeta):
+class TypeDefinitionBuilder(metaclass=abc.ABCMeta):
     @property
     @abc.abstractmethod
     def info(self) -> TypeInfo:
@@ -41,23 +44,23 @@ class TypeDefBuilder(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
-Expr = t.Union[ast.expr, ASTExpressionBuilder]
-Stmt = t.Union[ast.stmt, ASTStatementBuilder, Expr]
-TypeRef = t.Union[
+Expr: TypeAlias = t.Union[ast.expr, ASTExpressionBuilder]
+Stmt: TypeAlias = t.Union[ast.stmt, ASTStatementBuilder, Expr]
+TypeRef: TypeAlias = t.Union[
     Expr,
     RuntimeType,
     TypeInfo,
-    TypeDefBuilder,
+    TypeDefinitionBuilder,
 ]
 
 
 class ASTResolver(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def expr(self, ref: TypeRef, *tail: str) -> ast.expr:
+    def resolve_expr(self, ref: TypeRef, *tail: str) -> ast.expr:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def body(
+    def resolve_stmts(
         self,
         *stmts: t.Optional[Stmt],
         docs: t.Optional[t.Sequence[str]] = None,

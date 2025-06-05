@@ -13,7 +13,7 @@ if t.TYPE_CHECKING:
     import ast
 
     from astlab._typing import Self
-    from astlab.info import ModuleInfo, PackageInfo
+    from astlab.types import ModuleInfo, PackageInfo
 
 
 @dataclass()
