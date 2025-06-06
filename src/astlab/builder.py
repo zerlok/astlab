@@ -60,31 +60,48 @@ def build_package(
     info: t.Union[str, PackageInfo],
     parent: t.Optional[PackageInfo] = None,
     resolver: t.Optional[ASTResolver] = None,
+    inspector: t.Optional[TypeInspector] = None,
 ) -> PackageASTBuilder:
     """Start python package builder."""
-
-    pkg_info = info if isinstance(info, PackageInfo) else PackageInfo(info, parent)
-    context = BuildContext([], defaultdict(set), deque())
-
-    return PackageASTBuilder(context, resolver if resolver is not None else DefaultASTResolver(context), pkg_info, {})
+    return PackageASTBuilder(
+        context=_create_context(resolver, inspector),
+        info=info if isinstance(info, PackageInfo) else PackageInfo(info, parent),
+        modules={},
+    )
 
 
 def build_module(
     info: t.Union[str, ModuleInfo],
     parent: t.Optional[PackageInfo] = None,
     resolver: t.Optional[ASTResolver] = None,
+    inspector: t.Optional[TypeInspector] = None,
 ) -> ModuleASTBuilder:
     """Start python module builder."""
+    return ModuleASTBuilder(
+        context=_create_context(resolver, inspector),
+        info=info if isinstance(info, ModuleInfo) else ModuleInfo(info, parent),
+        body=[],
+    )
 
-    mod_info = info if isinstance(info, ModuleInfo) else ModuleInfo(info, parent)
-    context = BuildContext([], defaultdict(set), deque())
 
-    return ModuleASTBuilder(context, resolver if resolver is not None else DefaultASTResolver(context), mod_info, [])
+def _create_context(
+    resolver: t.Optional[ASTResolver],
+    inspector: t.Optional[TypeInspector],
+) -> BuildContext:
+    inspector = inspector if inspector is not None else TypeInspector()
+
+    return BuildContext(
+        packages=[],
+        dependencies=defaultdict(set),
+        scopes=deque(),
+        resolver=resolver if resolver is not None else DefaultASTResolver(inspector),
+        inspector=inspector,
+    )
 
 
 class AttrASTBuilder(ASTExpressionBuilder):
-    def __init__(self, resolver: ASTResolver, head: t.Union[str, TypeRef], *tail: str) -> None:
-        self.__resolver = resolver
+    def __init__(self, context: BuildContext, head: t.Union[str, TypeRef], *tail: str) -> None:
+        self.__context = context
         self.__head = head
         self.__tail = tail
 
@@ -112,7 +129,7 @@ class AttrASTBuilder(ASTExpressionBuilder):
         return *reversed(parts), *self.__tail
 
     def attr(self, *tail: str) -> Self:
-        return self.__class__(self.__resolver, self, *tail)
+        return self.__class__(self.__context, self, *tail)
 
     def call(
         self,
@@ -120,7 +137,7 @@ class AttrASTBuilder(ASTExpressionBuilder):
         kwargs: t.Optional[t.Mapping[str, Expr]] = None,
     ) -> CallASTBuilder:
         return CallASTBuilder(
-            resolver=self.__resolver,
+            context=self.__context,
             func=self,
             args=args,
             kwargs=kwargs,
@@ -128,7 +145,7 @@ class AttrASTBuilder(ASTExpressionBuilder):
 
     @override
     def build_expr(self) -> ast.expr:
-        return self.__resolver.resolve_expr(
+        return self.__context.resolver.resolve_expr(
             ast.Name(id=self.__head) if isinstance(self.__head, str) else self.__head,
             *self.__tail,
         )
@@ -138,12 +155,12 @@ class AttrASTBuilder(ASTExpressionBuilder):
 class CallASTBuilder(ASTExpressionBuilder):
     def __init__(
         self,
-        resolver: ASTResolver,
+        context: BuildContext,
         func: TypeRef,
         args: t.Optional[t.Sequence[Expr]] = None,
         kwargs: t.Optional[t.Mapping[str, Expr]] = None,
     ) -> None:
-        self.__resolver = resolver
+        self.__context = context
         self.__func = func
         self.__args = list[Expr]()
         self.__kwargs = dict[str, Expr]()
@@ -160,7 +177,7 @@ class CallASTBuilder(ASTExpressionBuilder):
         return self
 
     def arg(self, expr: Expr) -> Self:
-        self.__args.append(self.__resolver.resolve_expr(expr))
+        self.__args.append(self.__context.resolver.resolve_expr(expr))
         return self
 
     def kwarg(self, name: str, expr: Expr) -> Self:
@@ -168,7 +185,7 @@ class CallASTBuilder(ASTExpressionBuilder):
         return self
 
     def attr(self, *tail: str) -> AttrASTBuilder:
-        return AttrASTBuilder(self.__resolver, self).attr(*tail)
+        return AttrASTBuilder(self.__context, self).attr(*tail)
 
     def call(
         self,
@@ -176,7 +193,7 @@ class CallASTBuilder(ASTExpressionBuilder):
         kwargs: t.Optional[t.Mapping[str, Expr]] = None,
     ) -> Self:
         return self.__class__(
-            resolver=self.__resolver,
+            context=self.__context,
             func=self,
             args=args,
             kwargs=kwargs,
@@ -185,10 +202,11 @@ class CallASTBuilder(ASTExpressionBuilder):
     @override
     def build_expr(self) -> ast.expr:
         node: ast.expr = ast.Call(
-            func=self.__resolver.resolve_expr(self.__func),
-            args=[self.__resolver.resolve_expr(arg) for arg in self.__args],
+            func=self.__context.resolver.resolve_expr(self.__func),
+            args=[self.__context.resolver.resolve_expr(arg) for arg in self.__args],
             keywords=[
-                ast.keyword(arg=key, value=self.__resolver.resolve_expr(kwarg)) for key, kwarg in self.__kwargs.items()
+                ast.keyword(arg=key, value=self.__context.resolver.resolve_expr(kwarg))
+                for key, kwarg in self.__kwargs.items()
             ],
             lineno=0,
         )
@@ -201,9 +219,8 @@ class CallASTBuilder(ASTExpressionBuilder):
 
 # noinspection PyTypeChecker
 class _BaseASTBuilder:
-    def __init__(self, resolver: ASTResolver) -> None:
-        self._resolver = resolver
-        self._inspector = TypeInspector()
+    def __init__(self, context: BuildContext) -> None:
+        self._context = context
 
     def const(self, value: object) -> ast.expr:
         assert not isinstance(value, ast.AST)
@@ -219,13 +236,15 @@ class _BaseASTBuilder:
         or_else: t.Optional[Expr] = None,
     ) -> ast.expr:
         return ast.IfExp(
-            test=ast.Compare(left=self._resolver.resolve_expr(test), ops=[ast.IsNot()], comparators=[self.none()]),
-            body=self._resolver.resolve_expr(body),
-            orelse=self._resolver.resolve_expr(or_else) if or_else is not None else self.none(),
+            test=ast.Compare(
+                left=self._context.resolver.resolve_expr(test), ops=[ast.IsNot()], comparators=[self.none()]
+            ),
+            body=self._context.resolver.resolve_expr(body),
+            orelse=self._context.resolver.resolve_expr(or_else) if or_else is not None else self.none(),
         )
 
     def tuple_expr(self, *items: TypeRef) -> ast.expr:
-        return ast.Tuple(elts=[self._resolver.resolve_expr(item) for item in items])
+        return ast.Tuple(elts=[self._context.resolver.resolve_expr(item) for item in items])
 
     @t.overload
     def set_expr(self, items: Expr, target: Expr, item: Expr) -> ast.expr: ...
@@ -244,18 +263,18 @@ class _BaseASTBuilder:
             assert item is not None
 
             return ast.SetComp(
-                elt=self._resolver.resolve_expr(item),
+                elt=self._context.resolver.resolve_expr(item),
                 generators=[
                     ast.comprehension(
-                        target=self._resolver.resolve_expr(target),
-                        iter=self._resolver.resolve_expr(items),
+                        target=self._context.resolver.resolve_expr(target),
+                        iter=self._context.resolver.resolve_expr(items),
                         ifs=[],
                         is_async=False,
                     )
                 ],
             )
 
-        return ast.Set(elts=[self._resolver.resolve_expr(item) for item in items])
+        return ast.Set(elts=[self._context.resolver.resolve_expr(item) for item in items])
 
     @t.overload
     def list_expr(self, items: Expr, target: Expr, item: Expr) -> ast.expr: ...
@@ -274,18 +293,18 @@ class _BaseASTBuilder:
             assert item is not None
 
             return ast.ListComp(
-                elt=self._resolver.resolve_expr(item),
+                elt=self._context.resolver.resolve_expr(item),
                 generators=[
                     ast.comprehension(
-                        target=self._resolver.resolve_expr(target),
-                        iter=self._resolver.resolve_expr(items),
+                        target=self._context.resolver.resolve_expr(target),
+                        iter=self._context.resolver.resolve_expr(items),
                         ifs=[],
                         is_async=False,
                     )
                 ],
             )
 
-        return ast.List(elts=[self._resolver.resolve_expr(item) for item in items])
+        return ast.List(elts=[self._context.resolver.resolve_expr(item) for item in items])
 
     @t.overload
     def dict_expr(self, items: Expr, target: Expr, key: Expr, value: Expr) -> ast.expr: ...
@@ -306,12 +325,12 @@ class _BaseASTBuilder:
             assert value is not None
 
             return ast.DictComp(
-                key=self._resolver.resolve_expr(key),
-                value=self._resolver.resolve_expr(value),
+                key=self._context.resolver.resolve_expr(key),
+                value=self._context.resolver.resolve_expr(value),
                 generators=[
                     ast.comprehension(
-                        target=self._resolver.resolve_expr(target),
-                        iter=self._resolver.resolve_expr(items),
+                        target=self._context.resolver.resolve_expr(target),
+                        iter=self._context.resolver.resolve_expr(items),
                         ifs=[],
                         is_async=False,
                     )
@@ -319,15 +338,15 @@ class _BaseASTBuilder:
             )
 
         return ast.Dict(
-            keys=[self._resolver.resolve_expr(key) for key in items],
-            values=[self._resolver.resolve_expr(value) for value in items.values()],
+            keys=[self._context.resolver.resolve_expr(key) for key in items],
+            values=[self._context.resolver.resolve_expr(value) for value in items.values()],
         )
 
     def not_(self, expr: Expr) -> ast.expr:
-        return ast.UnaryOp(op=ast.Not(), operand=self._resolver.resolve_expr(expr))
+        return ast.UnaryOp(op=ast.Not(), operand=self._context.resolver.resolve_expr(expr))
 
     def attr(self, head: t.Union[str, TypeRef], *tail: str) -> AttrASTBuilder:
-        return AttrASTBuilder(self._resolver, head, *tail)
+        return AttrASTBuilder(self._context, head, *tail)
 
     def call(
         self,
@@ -339,22 +358,26 @@ class _BaseASTBuilder:
 
     def type_ref(self, origin: t.Union[RuntimeType, TypeInfo]) -> ClassRefBuilder:
         return ClassRefBuilder(
-            resolver=self._resolver,
-            info=origin if isinstance(origin, (NamedTypeInfo, LiteralTypeInfo)) else self._inspector.inspect(origin),
+            context=self._context,
+            info=origin
+            if isinstance(origin, (NamedTypeInfo, LiteralTypeInfo))
+            else self._context.inspector.inspect(origin),
         )
 
     def generic_type(self, generic: TypeRef, *args: TypeRef) -> ast.expr:
         if len(args) == 0:
-            return self._resolver.resolve_expr(generic)
+            return self._context.resolver.resolve_expr(generic)
 
         if len(args) == 1:
-            return ast.Subscript(value=self._resolver.resolve_expr(generic), slice=self._resolver.resolve_expr(args[0]))
+            return ast.Subscript(
+                value=self._context.resolver.resolve_expr(generic), slice=self._context.resolver.resolve_expr(args[0])
+            )
 
-        return ast.Subscript(value=self._resolver.resolve_expr(generic), slice=self.tuple_expr(*args))
+        return ast.Subscript(value=self._context.resolver.resolve_expr(generic), slice=self.tuple_expr(*args))
 
     def literal_type(self, *args: t.Union[str, Expr]) -> ast.expr:
         if not args:
-            return self._resolver.resolve_expr(predef().no_return)
+            return self._context.resolver.resolve_expr(predef().no_return)
 
         return self.generic_type(
             predef().literal,
@@ -387,9 +410,8 @@ class _BaseASTBuilder:
 
 
 class _BaseHeaderASTBuilder(t.Generic[T_co], t.ContextManager[T_co], ASTStatementBuilder, metaclass=abc.ABCMeta):
-    def __init__(self, context: BuildContext, resolver: ASTResolver, name: t.Optional[str] = None) -> None:
+    def __init__(self, context: BuildContext, name: t.Optional[str] = None) -> None:
         self._context = context
-        self._resolver = resolver
         self._name = name
 
     @override
@@ -406,7 +428,7 @@ class _BaseHeaderASTBuilder(t.Generic[T_co], t.ContextManager[T_co], ASTStatemen
     ) -> None:
         if exc_type is None:
             # 1. build statements using nested context
-            body = self._resolver.resolve_stmts(self)
+            body = self._context.resolver.resolve_stmts(self)
             # 2. exit nested context
             self._context.leave_scope()
             # 3. fill statements to current scope
@@ -419,21 +441,17 @@ class _BaseHeaderASTBuilder(t.Generic[T_co], t.ContextManager[T_co], ASTStatemen
 
 # noinspection PyTypeChecker
 class ScopeASTBuilder(_BaseASTBuilder):
-    def __init__(self, context: BuildContext, resolver: ASTResolver) -> None:
-        super().__init__(resolver)
-        self._context = context
-
     def class_def(self, name: str) -> ClassHeaderASTBuilder:
-        return ClassHeaderASTBuilder(self._context, self._resolver, name)
+        return ClassHeaderASTBuilder(self._context, name)
 
     def func_def(self, name: str) -> FuncHeaderASTBuilder:
-        return FuncHeaderASTBuilder(self._context, self._resolver, name)
+        return FuncHeaderASTBuilder(self._context, name)
 
     def field_def(self, name: str, annotation: TypeRef, default: t.Optional[Expr] = None) -> ast.stmt:
         node = ast.AnnAssign(
             target=ast.Name(id=name),
-            annotation=self._resolver.resolve_expr(annotation),
-            value=self._resolver.resolve_expr(default) if default is not None else None,
+            annotation=self._context.resolver.resolve_expr(annotation),
+            value=self._context.resolver.resolve_expr(default) if default is not None else None,
             simple=1,
         )
         self._context.append_body(node)
@@ -441,12 +459,12 @@ class ScopeASTBuilder(_BaseASTBuilder):
         return node
 
     def stmt(self, *stmts: t.Optional[Stmt]) -> None:
-        self._context.extend_body(self._resolver.resolve_stmts(*stmts))
+        self._context.extend_body(self._context.resolver.resolve_stmts(*stmts))
 
     def assign_stmt(self, target: t.Union[str, Expr], value: Expr) -> ast.stmt:
         node = ast.Assign(
-            targets=[self._resolver.resolve_expr(self.attr(target))],
-            value=self._resolver.resolve_expr(value),
+            targets=[self._context.resolver.resolve_expr(self.attr(target))],
+            value=self._context.resolver.resolve_expr(value),
             lineno=0,
         )
         self._context.append_body(node)
@@ -454,13 +472,13 @@ class ScopeASTBuilder(_BaseASTBuilder):
         return node
 
     def if_stmt(self, test: Expr) -> IfStatementASTBuilder:
-        return IfStatementASTBuilder(self._context, self._resolver, test)
+        return IfStatementASTBuilder(self._context, test)
 
     def for_stmt(self, target: str, items: Expr) -> ForHeaderASTBuilder:
-        return ForHeaderASTBuilder(self._context, self._resolver, target, items)
+        return ForHeaderASTBuilder(self._context, target, items)
 
     def while_stmt(self, test: Expr) -> WhileHeaderASTBuilder:
-        return WhileHeaderASTBuilder(self._context, self._resolver, test)
+        return WhileHeaderASTBuilder(self._context, test)
 
     def break_stmt(self) -> ast.stmt:
         node = ast.Break()
@@ -469,7 +487,7 @@ class ScopeASTBuilder(_BaseASTBuilder):
 
     def return_stmt(self, value: Expr) -> ast.stmt:
         node = ast.Return(
-            value=self._resolver.resolve_expr(value),
+            value=self._context.resolver.resolve_expr(value),
             lineno=0,
         )
         self._context.append_body(node)
@@ -479,7 +497,7 @@ class ScopeASTBuilder(_BaseASTBuilder):
     def yield_stmt(self, value: Expr) -> ast.stmt:
         node = ast.Expr(
             value=ast.Yield(
-                value=self._resolver.resolve_expr(value),
+                value=self._context.resolver.resolve_expr(value),
                 lineno=0,
             ),
         )
@@ -488,23 +506,23 @@ class ScopeASTBuilder(_BaseASTBuilder):
         return node
 
     def try_stmt(self) -> TryStatementASTBuilder:
-        return TryStatementASTBuilder(self._context, self._resolver)
+        return TryStatementASTBuilder(self._context)
 
     def raise_stmt(self, err: Expr, cause: t.Optional[Expr] = None) -> ast.stmt:
         node = ast.Raise(
-            exc=self._resolver.resolve_expr(err),
-            cause=self._resolver.resolve_expr(cause) if cause is not None else None,
+            exc=self._context.resolver.resolve_expr(err),
+            cause=self._context.resolver.resolve_expr(cause) if cause is not None else None,
         )
         self._context.append_body(node)
         return node
 
     def with_stmt(self) -> WithStatementASTBuilder:
-        return WithStatementASTBuilder(self._context, self._resolver)
+        return WithStatementASTBuilder(self._context)
 
 
 class _BaseScopeBodyASTBuilder(ScopeASTBuilder, ASTStatementBuilder):
-    def __init__(self, context: BuildContext, resolver: ASTResolver, parent: ASTStatementBuilder) -> None:
-        super().__init__(context, resolver)
+    def __init__(self, context: BuildContext, parent: ASTStatementBuilder) -> None:
+        super().__init__(context)
         self.__parent = parent
 
     @override
@@ -513,16 +531,15 @@ class _BaseScopeBodyASTBuilder(ScopeASTBuilder, ASTStatementBuilder):
 
 
 class _BaseChainPartASTBuilder(t.ContextManager[ScopeASTBuilder], ASTStatementBuilder):
-    def __init__(self, context: BuildContext, resolver: ASTResolver, name: t.Optional[str] = None) -> None:
+    def __init__(self, context: BuildContext, name: t.Optional[str] = None) -> None:
         self._context = context
-        self._resolver = resolver
         self._name = name
         self.__stmts = list[ast.stmt]()
 
     @override
     def __enter__(self) -> ScopeASTBuilder:
         self._context.enter_scope(self._name, [])
-        return _BaseScopeBodyASTBuilder(self._context, self._resolver, self)
+        return _BaseScopeBodyASTBuilder(self._context, self)
 
     @override
     def __exit__(
@@ -533,7 +550,7 @@ class _BaseChainPartASTBuilder(t.ContextManager[ScopeASTBuilder], ASTStatementBu
     ) -> None:
         if exc_type is None:
             # 1. build statements using nested context
-            stmts = self._resolver.resolve_stmts(*self._context.current_body)
+            stmts = self._context.resolver.resolve_stmts(*self._context.current_body)
             # 2. exit nested context
             self._context.leave_scope()
             # 3. fill statements to current chain
@@ -546,15 +563,15 @@ class _BaseChainPartASTBuilder(t.ContextManager[ScopeASTBuilder], ASTStatementBu
 
 # noinspection PyTypeChecker
 class WhileHeaderASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
-    def __init__(self, context: BuildContext, resolver: ASTResolver, test: Expr) -> None:
-        super().__init__(context, resolver)
+    def __init__(self, context: BuildContext, test: Expr) -> None:
+        super().__init__(context)
         self.__test = test
 
     @override
     def build_stmt(self) -> t.Sequence[ast.stmt]:
         return [
             ast.While(
-                test=self._resolver.resolve_expr(self.__test),
+                test=self._context.resolver.resolve_expr(self.__test),
                 body=self._context.current_body,
                 orelse=[],
                 lineno=0,
@@ -563,13 +580,13 @@ class WhileHeaderASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
 
     @override
     def _create_scope_builder(self) -> _BaseScopeBodyASTBuilder:
-        return _BaseScopeBodyASTBuilder(self._context, self._resolver, self)
+        return _BaseScopeBodyASTBuilder(self._context, self)
 
 
 # noinspection PyTypeChecker
 class ForHeaderASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
-    def __init__(self, context: BuildContext, resolver: ASTResolver, target: str, items: Expr) -> None:
-        super().__init__(context, resolver)
+    def __init__(self, context: BuildContext, target: str, items: Expr) -> None:
+        super().__init__(context)
         self.__target = target
         self.__items = items
         self.__is_async = False
@@ -583,7 +600,7 @@ class ForHeaderASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
         stmt = (
             ast.AsyncFor(
                 target=ast.Name(id=self.__target),
-                iter=self._resolver.resolve_expr(self.__items),
+                iter=self._context.resolver.resolve_expr(self.__items),
                 body=self._context.current_body,
                 orelse=[],
                 lineno=0,
@@ -591,7 +608,7 @@ class ForHeaderASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
             if self.__is_async
             else ast.For(
                 target=ast.Name(id=self.__target),
-                iter=self._resolver.resolve_expr(self.__items),
+                iter=self._context.resolver.resolve_expr(self.__items),
                 body=self._context.current_body,
                 orelse=[],
                 lineno=0,
@@ -602,13 +619,13 @@ class ForHeaderASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
 
     @override
     def _create_scope_builder(self) -> _BaseScopeBodyASTBuilder:
-        return _BaseScopeBodyASTBuilder(self._context, self._resolver, self)
+        return _BaseScopeBodyASTBuilder(self._context, self)
 
 
 # noinspection PyTypeChecker
 class WithStatementASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
-    def __init__(self, context: BuildContext, resolver: ASTResolver) -> None:
-        super().__init__(context, resolver)
+    def __init__(self, context: BuildContext) -> None:
+        super().__init__(context)
         self.__cms = list[Expr]()
         self.__names = list[t.Optional[str]]()
         self.__is_async = False
@@ -625,7 +642,9 @@ class WithStatementASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
     @override
     def build_stmt(self) -> t.Sequence[ast.stmt]:
         items = [
-            ast.withitem(self._resolver.resolve_expr(cm), optional_vars=ast.Name(id=name) if name is not None else None)
+            ast.withitem(
+                self._context.resolver.resolve_expr(cm), optional_vars=ast.Name(id=name) if name is not None else None
+            )
             for cm, name in zip(self.__cms, self.__names)
         ]
 
@@ -647,7 +666,7 @@ class WithStatementASTBuilder(_BaseHeaderASTBuilder[ScopeASTBuilder]):
 
     @override
     def _create_scope_builder(self) -> _BaseScopeBodyASTBuilder:
-        return _BaseScopeBodyASTBuilder(self._context, self._resolver, self)
+        return _BaseScopeBodyASTBuilder(self._context, self)
 
 
 # noinspection PyTypeChecker
@@ -658,17 +677,17 @@ class IfStatementASTBuilder(_BaseHeaderASTBuilder["IfStatementASTBuilder"]):
     class _Else(_BaseChainPartASTBuilder):
         pass
 
-    def __init__(self, context: BuildContext, resolver: ASTResolver, test: Expr) -> None:
-        super().__init__(context, resolver)
+    def __init__(self, context: BuildContext, test: Expr) -> None:
+        super().__init__(context)
         self.__test = test
-        self.__body = self._Body(context, resolver)
+        self.__body = self._Body(context)
         self.__else: t.Optional[IfStatementASTBuilder._Else] = None
 
     def body(self) -> t.ContextManager[ScopeASTBuilder]:
         return self.__body
 
     def else_(self) -> t.ContextManager[ScopeASTBuilder]:
-        part = self._Else(self._context, self._resolver)
+        part = self._Else(self._context)
         self.__else = part
         return part
 
@@ -676,9 +695,9 @@ class IfStatementASTBuilder(_BaseHeaderASTBuilder["IfStatementASTBuilder"]):
     def build_stmt(self) -> t.Sequence[ast.stmt]:
         return [
             ast.If(
-                test=self._resolver.resolve_expr(self.__test),
-                body=self._resolver.resolve_stmts(self.__body),
-                orelse=self._resolver.resolve_stmts(self.__else),
+                test=self._context.resolver.resolve_expr(self.__test),
+                body=self._context.resolver.resolve_stmts(self.__body),
+                orelse=self._context.resolver.resolve_stmts(self.__else),
                 lineno=0,
             ),
         ]
@@ -697,21 +716,20 @@ class TryStatementASTBuilder(_BaseHeaderASTBuilder["TryStatementASTBuilder"]):
         def __init__(
             self,
             context: BuildContext,
-            resolver: ASTResolver,
             types: t.Sequence[TypeRef],
             name: t.Optional[str],
         ) -> None:
-            super().__init__(context, resolver)
+            super().__init__(context)
             self.__types = types
             self.__name = name
 
         def handler(self) -> ast.ExceptHandler:
-            base = _BaseASTBuilder(self._resolver)
+            base = _BaseASTBuilder(self._context)
 
             return ast.ExceptHandler(
                 type=base.tuple_expr(*self.__types),
                 name=self.__name,
-                body=self._resolver.resolve_stmts(self, pass_if_empty=True),
+                body=self._context.resolver.resolve_stmts(self, pass_if_empty=True),
             )
 
     class _Else(_BaseChainPartASTBuilder):
@@ -720,9 +738,9 @@ class TryStatementASTBuilder(_BaseHeaderASTBuilder["TryStatementASTBuilder"]):
     class _Finally(_BaseChainPartASTBuilder):
         pass
 
-    def __init__(self, context: BuildContext, resolver: ASTResolver) -> None:
-        super().__init__(context, resolver)
-        self.__body = self._Body(context, resolver)
+    def __init__(self, context: BuildContext) -> None:
+        super().__init__(context)
+        self.__body = self._Body(context)
         self.__excepts = list[TryStatementASTBuilder._Except]()
         self.__else: t.Optional[TryStatementASTBuilder._Else] = None
         self.__finally: t.Optional[TryStatementASTBuilder._Finally] = None
@@ -731,17 +749,17 @@ class TryStatementASTBuilder(_BaseHeaderASTBuilder["TryStatementASTBuilder"]):
         return self.__body
 
     def except_(self, *types: TypeRef, name: t.Optional[str] = None) -> t.ContextManager[ScopeASTBuilder]:
-        part = self._Except(self._context, self._resolver, types, name)
+        part = self._Except(self._context, types, name)
         self.__excepts.append(part)
         return part
 
     def else_(self) -> t.ContextManager[ScopeASTBuilder]:
-        part = self._Else(self._context, self._resolver)
+        part = self._Else(self._context)
         self.__else = part
         return part
 
     def finally_(self) -> t.ContextManager[ScopeASTBuilder]:
-        part = self._Finally(self._context, self._resolver)
+        part = self._Finally(self._context)
         self.__finally = part
         return part
 
@@ -753,10 +771,10 @@ class TryStatementASTBuilder(_BaseHeaderASTBuilder["TryStatementASTBuilder"]):
 
         return [
             ast.Try(
-                body=self._resolver.resolve_stmts(self.__body),
+                body=self._context.resolver.resolve_stmts(self.__body),
                 handlers=[part.handler() for part in self.__excepts],
-                orelse=self._resolver.resolve_stmts(self.__else),
-                finalbody=self._resolver.resolve_stmts(self.__finally),
+                orelse=self._context.resolver.resolve_stmts(self.__else),
+                finalbody=self._context.resolver.resolve_stmts(self.__finally),
             ),
         ]
 
@@ -766,11 +784,11 @@ class TryStatementASTBuilder(_BaseHeaderASTBuilder["TryStatementASTBuilder"]):
 
 
 class ClassRefBuilder(ASTExpressionBuilder):
-    def __init__(self, resolver: ASTResolver, info: TypeInfo) -> None:
-        self.__resolver = resolver
+    def __init__(self, context: BuildContext, info: TypeInfo) -> None:
+        self.__context = context
         self.__info = info
-        self.__transforms: t.Callable[[TypeInfo], ast.expr] = self.__resolver.resolve_expr
-        self.__base = _BaseASTBuilder(resolver)
+        self.__transforms: t.Callable[[TypeInfo], ast.expr] = self.__context.resolver.resolve_expr
+        self.__base = _BaseASTBuilder(context)
 
     def optional(self) -> ClassRefBuilder:
         inner = self.__transforms
@@ -843,14 +861,14 @@ class ClassRefBuilder(ASTExpressionBuilder):
         return self
 
     def attr(self, *tail: str) -> AttrASTBuilder:
-        return AttrASTBuilder(self.__resolver, self, *tail)
+        return AttrASTBuilder(self.__context, self, *tail)
 
     def init(
         self,
         args: t.Optional[t.Sequence[Expr]] = None,
         kwargs: t.Optional[t.Mapping[str, Expr]] = None,
     ) -> CallASTBuilder:
-        return CallASTBuilder(self.__resolver, self, args, kwargs)
+        return CallASTBuilder(self.__context, self, args, kwargs)
 
     @override
     def build_expr(self) -> ast.expr:
@@ -858,13 +876,8 @@ class ClassRefBuilder(ASTExpressionBuilder):
 
 
 class ClassBodyASTBuilder(_BaseScopeBodyASTBuilder, TypeDefinitionBuilder):
-    def __init__(
-        self,
-        context: BuildContext,
-        resolver: ASTResolver,
-        header: ClassHeaderASTBuilder,
-    ) -> None:
-        super().__init__(context, resolver, header)
+    def __init__(self, context: BuildContext, header: ClassHeaderASTBuilder) -> None:
+        super().__init__(context, header)
         self.__header = header
 
     @override
@@ -877,7 +890,7 @@ class ClassBodyASTBuilder(_BaseScopeBodyASTBuilder, TypeDefinitionBuilder):
         return self.__header.ref()
 
     def method_def(self, name: str) -> MethodHeaderASTBuilder:
-        return MethodHeaderASTBuilder(self._context, self._resolver, name)
+        return MethodHeaderASTBuilder(self._context, name)
 
     def new_def(self) -> MethodHeaderASTBuilder:
         return self.method_def("__new__")
@@ -943,8 +956,8 @@ class TypeVar:
 
 # noinspection PyTypeChecker
 class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefinitionBuilder):
-    def __init__(self, context: BuildContext, resolver: ASTResolver, name: str) -> None:
-        super().__init__(context, resolver, name)
+    def __init__(self, context: BuildContext, name: str) -> None:
+        super().__init__(context, name)
         self.__info = NamedTypeInfo(name=name, module=self._context.module, namespace=self._context.namespace)
         self.__bases = list[TypeRef]()
         self.__decorators = list[TypeRef]()
@@ -959,7 +972,7 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefi
 
     @override
     def ref(self) -> ClassRefBuilder:
-        return ClassRefBuilder(self._resolver, self.__info)
+        return ClassRefBuilder(self._context, self.__info)
 
     if sys.version_info >= (3, 12):
 
@@ -976,7 +989,7 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefi
         return self.keywords(metaclass=predef().abc_meta)
 
     def dataclass(self, *, frozen: bool = False, kw_only: bool = False) -> Self:
-        dc = CallASTBuilder(self._resolver, predef().dataclass_decorator)
+        dc = CallASTBuilder(self._context, predef().dataclass_decorator)
 
         if frozen:
             dc.kwarg("frozen", ast.Constant(value=frozen))
@@ -1010,22 +1023,24 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefi
             return (
                 ast.ClassDef(
                     name=self._context.name,
-                    bases=[self._resolver.resolve_expr(base) for base in self.__bases],
+                    bases=[self._context.resolver.resolve_expr(base) for base in self.__bases],
                     keywords=[
                         ast.keyword(
                             arg=key,
-                            value=self._resolver.resolve_expr(value),
+                            value=self._context.resolver.resolve_expr(value),
                         )
                         for key, value in self.__keywords.items()
                     ],
-                    body=self._resolver.resolve_stmts(
+                    body=self._context.resolver.resolve_stmts(
                         *self._context.current_body, docs=self.__docs, pass_if_empty=True
                     ),
                     decorator_list=self.__build_decorators(),
                     type_params=[
                         ast.TypeVar(
                             name=type_var.name,
-                            bound=self._resolver.resolve_expr(type_var.bound) if type_var.bound is not None else None,
+                            bound=self._context.resolver.resolve_expr(type_var.bound)
+                            if type_var.bound is not None
+                            else None,
                         )
                         for type_var in self.__type_vars
                     ],
@@ -1039,15 +1054,15 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefi
             return (
                 ast.ClassDef(
                     name=self._context.name,
-                    bases=[self._resolver.resolve_expr(base) for base in self.__bases],
+                    bases=[self._context.resolver.resolve_expr(base) for base in self.__bases],
                     keywords=[
                         ast.keyword(
                             arg=key,
-                            value=self._resolver.resolve_expr(value),
+                            value=self._context.resolver.resolve_expr(value),
                         )
                         for key, value in self.__keywords.items()
                     ],
-                    body=self._resolver.resolve_stmts(
+                    body=self._context.resolver.resolve_stmts(
                         *self._context.current_body, docs=self.__docs, pass_if_empty=True
                     ),
                     decorator_list=self.__build_decorators(),
@@ -1056,21 +1071,16 @@ class ClassHeaderASTBuilder(_BaseHeaderASTBuilder[ClassBodyASTBuilder], TypeDefi
 
     @override
     def _create_scope_builder(self) -> ClassBodyASTBuilder:
-        return ClassBodyASTBuilder(self._context, self._resolver, self)
+        return ClassBodyASTBuilder(self._context, self)
 
     def __build_decorators(self) -> list[ast.expr]:
-        return [self._resolver.resolve_expr(dec) for dec in self.__decorators]
+        return [self._context.resolver.resolve_expr(dec) for dec in self.__decorators]
 
 
 # noinspection PyTypeChecker,PyAbstractClass
 class _BaseFuncSignatureASTBuilder(_BaseHeaderASTBuilder[T_co]):
-    def __init__(
-        self,
-        context: BuildContext,
-        resolver: ASTResolver,
-        name: str,
-    ) -> None:
-        super().__init__(context, resolver, name)
+    def __init__(self, context: BuildContext, name: str) -> None:
+        super().__init__(context, name)
         self.__name = name
         self.__decorators = list[TypeRef]()
         self.__args = list[tuple[str, t.Optional[TypeRef]]]()
@@ -1179,7 +1189,10 @@ class _BaseFuncSignatureASTBuilder(_BaseHeaderASTBuilder[T_co]):
                 predef().async_context_manager_decorator if self.__is_async else predef().context_manager_decorator
             )
 
-        return [self._resolver.resolve_expr(dec) for dec in chain(head_decorators, self.__decorators, last_decorators)]
+        return [
+            self._context.resolver.resolve_expr(dec)
+            for dec in chain(head_decorators, self.__decorators, last_decorators)
+        ]
 
     def __build_args(self) -> ast.arguments:
         return ast.arguments(
@@ -1187,22 +1200,26 @@ class _BaseFuncSignatureASTBuilder(_BaseHeaderASTBuilder[T_co]):
             args=[
                 ast.arg(
                     arg=arg,
-                    annotation=self._resolver.resolve_expr(annotation) if annotation is not None else None,
+                    annotation=self._context.resolver.resolve_expr(annotation) if annotation is not None else None,
                 )
                 for arg, annotation in self.__args
             ],
             defaults=[
-                self._resolver.resolve_expr(self.__defaults[arg]) for arg, _ in self.__args if arg in self.__defaults
+                self._context.resolver.resolve_expr(self.__defaults[arg])
+                for arg, _ in self.__args
+                if arg in self.__defaults
             ],
             kwonlyargs=[
                 ast.arg(
                     arg=arg,
-                    annotation=self._resolver.resolve_expr(annotation) if annotation is not None else None,
+                    annotation=self._context.resolver.resolve_expr(annotation) if annotation is not None else None,
                 )
                 for arg, annotation in self.__kwargs.items()
             ],
             kw_defaults=[
-                self._resolver.resolve_expr(self.__defaults[key]) for key in self.__kwargs if key in self.__defaults
+                self._context.resolver.resolve_expr(self.__defaults[key])
+                for key in self.__kwargs
+                if key in self.__defaults
             ],
         )
 
@@ -1210,9 +1227,9 @@ class _BaseFuncSignatureASTBuilder(_BaseHeaderASTBuilder[T_co]):
         if self.__returns is None:
             return None
 
-        ret = self._resolver.resolve_expr(self.__returns)
+        ret = self._context.resolver.resolve_expr(self.__returns)
         if self.__iterator_cm:
-            ret = _BaseASTBuilder(self._resolver).iterator_type(ret, is_async=self.__is_async)
+            ret = _BaseASTBuilder(self._context).iterator_type(ret, is_async=self.__is_async)
 
         return ret
 
@@ -1228,7 +1245,7 @@ class _BaseFuncSignatureASTBuilder(_BaseHeaderASTBuilder[T_co]):
         else:
             body = self._context.current_body
 
-        return self._resolver.resolve_stmts(*body, docs=self.__docs, pass_if_empty=True)
+        return self._context.resolver.resolve_stmts(*body, docs=self.__docs, pass_if_empty=True)
 
 
 class FuncBodyASTBuilder(_BaseScopeBodyASTBuilder):
@@ -1238,7 +1255,7 @@ class FuncBodyASTBuilder(_BaseScopeBodyASTBuilder):
 class FuncHeaderASTBuilder(_BaseFuncSignatureASTBuilder[FuncBodyASTBuilder]):
     @override
     def _create_scope_builder(self) -> FuncBodyASTBuilder:
-        return FuncBodyASTBuilder(self._context, self._resolver, self)
+        return FuncBodyASTBuilder(self._context, self)
 
 
 class MethodBodyASTBuilder(FuncBodyASTBuilder):
@@ -1247,18 +1264,18 @@ class MethodBodyASTBuilder(FuncBodyASTBuilder):
 
 
 class MethodHeaderASTBuilder(_BaseFuncSignatureASTBuilder[MethodBodyASTBuilder]):
-    def __init__(self, context: BuildContext, resolver: ASTResolver, name: str) -> None:
-        super().__init__(context, resolver, name)
+    def __init__(self, context: BuildContext, name: str) -> None:
+        super().__init__(context, name)
         self.arg("self")
 
     @override
     def _create_scope_builder(self) -> MethodBodyASTBuilder:
-        return MethodBodyASTBuilder(self._context, self._resolver, self)
+        return MethodBodyASTBuilder(self._context, self)
 
 
 class ModuleASTBuilder(t.ContextManager["ModuleASTBuilder"], ScopeASTBuilder):
-    def __init__(self, context: BuildContext, resolver: ASTResolver, info: ModuleInfo, body: list[ast.stmt]) -> None:
-        super().__init__(context, resolver)
+    def __init__(self, context: BuildContext, info: ModuleInfo, body: list[ast.stmt]) -> None:
+        super().__init__(context)
         self.__info = info
         self.__body = body
         self.__docs = list[str]()
@@ -1296,7 +1313,7 @@ class ModuleASTBuilder(t.ContextManager["ModuleASTBuilder"], ScopeASTBuilder):
 
     def build(self) -> ast.Module:
         return ast.Module(
-            body=self._resolver.resolve_stmts(*self.__build_imports(), *self.__body, docs=self.__docs),
+            body=self._context.resolver.resolve_stmts(*self.__build_imports(), *self.__body, docs=self.__docs),
             type_ignores=[],
         )
 
@@ -1326,12 +1343,10 @@ class PackageASTBuilder(t.ContextManager["PackageASTBuilder"]):
     def __init__(
         self,
         context: BuildContext,
-        resolver: ASTResolver,
         info: PackageInfo,
         modules: dict[ModuleInfo, ModuleASTBuilder],
     ) -> None:
         self.__context = context
-        self.__resolver = resolver
         self.__info = info
         self.__modules = modules
 
@@ -1357,7 +1372,7 @@ class PackageASTBuilder(t.ContextManager["PackageASTBuilder"]):
         return self.__info
 
     def sub(self, name: str) -> Self:
-        return self.__class__(self.__context, self.__resolver, PackageInfo(name, self.__info), self.__modules)
+        return self.__class__(self.__context, PackageInfo(name, self.__info), self.__modules)
 
     def init(self) -> ModuleASTBuilder:
         return self.module("__init__")
@@ -1367,7 +1382,7 @@ class PackageASTBuilder(t.ContextManager["PackageASTBuilder"]):
 
         builder = self.__modules.get(info)
         if builder is None:
-            builder = self.__modules[info] = ModuleASTBuilder(self.__context, self.__resolver, info, [])
+            builder = self.__modules[info] = ModuleASTBuilder(self.__context, info, [])
 
         return builder
 

@@ -15,7 +15,7 @@ import abc
 import ast
 import typing as t
 
-from astlab.types import RuntimeType, TypeInfo
+from astlab.types import ModuleInfo, RuntimeType, TypeInfo
 
 if t.TYPE_CHECKING:
     from astlab._typing import TypeAlias
@@ -66,4 +66,13 @@ class ASTResolver(metaclass=abc.ABCMeta):
         docs: t.Optional[t.Sequence[str]] = None,
         pass_if_empty: bool = False,
     ) -> list[ast.stmt]:
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def set_current_scope(
+        self,
+        module: t.Optional[ModuleInfo],
+        namespace: t.Sequence[str],
+        dependencies: t.MutableSet[ModuleInfo],
+    ) -> None:
         raise NotImplementedError

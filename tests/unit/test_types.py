@@ -386,3 +386,20 @@ class TestTypeLoader:
         assert loaded == type_
         assert t.get_origin(loaded) is t.get_origin(type_)
         assert t.get_args(loaded) == t.get_args(type_)
+
+    @pytest.mark.parametrize(
+        ("info", "error"),
+        [
+            pytest.param(
+                NamedTypeInfo("NonExistingType", builtins_module_info()),
+                AttributeError,
+            ),
+            pytest.param(
+                NamedTypeInfo("SomeType", ModuleInfo("non_existing_module")),
+                ModuleNotFoundError,
+            ),
+        ],
+    )
+    def test_load_error(self, type_loader: TypeLoader, info: TypeInfo, error: type[Exception]) -> None:
+        with pytest.raises(error):
+            type_loader.load(info)

@@ -11,16 +11,15 @@ from itertools import chain
 
 from astlab._typing import assert_never, override
 from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefinitionBuilder, TypeRef
-from astlab.types import LiteralTypeInfo, NamedTypeInfo, TypeInfo, TypeInspector
-
-if t.TYPE_CHECKING:
-    from astlab.context import BuildContext
+from astlab.types import LiteralTypeInfo, ModuleInfo, NamedTypeInfo, TypeInfo, TypeInspector
 
 
 class DefaultASTResolver(ASTResolver):
-    def __init__(self, context: BuildContext, inspector: t.Optional[TypeInspector] = None) -> None:
-        self.__context = context
-        self.__inspector = inspector or TypeInspector()
+    def __init__(self, inspector: t.Optional[TypeInspector] = None) -> None:
+        self.__module: t.Optional[ModuleInfo] = None
+        self.__namespace: t.Sequence[str] = ()
+        self.__dependencies: t.MutableSet[ModuleInfo] = set[ModuleInfo]()
+        self.__inspector = inspector if inspector is not None else TypeInspector()
 
     @override
     def resolve_expr(self, ref: TypeRef, *tail: str) -> ast.expr:
@@ -67,6 +66,17 @@ class DefaultASTResolver(ASTResolver):
 
         return body
 
+    @override
+    def set_current_scope(
+        self,
+        module: t.Optional[ModuleInfo],
+        namespace: t.Sequence[str],
+        dependencies: t.MutableSet[ModuleInfo],
+    ) -> None:
+        self.__module = module
+        self.__namespace = namespace
+        self.__dependencies = dependencies
+
     def __type_info_expr(self, info: TypeInfo, *tail: str) -> ast.expr:
         if isinstance(info, NamedTypeInfo) and info.type_vars:
             msg = "can't build expr for type with type vars"
@@ -76,9 +86,8 @@ class DefaultASTResolver(ASTResolver):
         return self.__type_info_attr(resolved_info, *tail)
 
     def __type_info_attr(self, info: TypeInfo, *tail: str) -> ast.expr:
-        head, *middle = (
-            info.parts[len(self.__context.module.parts) :] if info.module == self.__context.module else info.parts
-        )
+        parts = self.__module.parts if self.__module is not None else ()
+        head, *middle = info.parts[len(parts) :] if info.module == self.__module else info.parts
 
         origin = self.__chain_attr(ast.Name(id=head), *middle, *tail)
         args = (
@@ -98,15 +107,15 @@ class DefaultASTResolver(ASTResolver):
 
     def __resolve_dependency(self, info: TypeInfo) -> TypeInfo:
         if isinstance(info, NamedTypeInfo):
-            if info.module == self.__context.module:
+            if info.module == self.__module:
                 ns = (
-                    info.namespace[len(self.__context.namespace) :]
-                    if info.namespace[: len(self.__context.namespace)] == self.__context.namespace
+                    info.namespace[len(self.__namespace) :]
+                    if info.namespace[: len(self.__namespace)] == self.__namespace
                     else info.namespace
                 )
 
             else:
-                self.__context.current_dependencies.add(info.module)
+                self.__dependencies.add(info.module)
                 ns = info.namespace
 
             return replace(
@@ -116,7 +125,7 @@ class DefaultASTResolver(ASTResolver):
             )
 
         elif isinstance(info, LiteralTypeInfo):
-            self.__context.current_dependencies.add(info.module)
+            self.__dependencies.add(info.module)
             return info
 
         else:

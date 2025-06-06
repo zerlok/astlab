@@ -6,7 +6,9 @@ __all__ = [
 ]
 
 import importlib
+import sys
 import typing as t
+from contextlib import contextmanager
 from pathlib import Path
 
 from astlab._typing import assert_never
@@ -28,9 +30,27 @@ if t.TYPE_CHECKING:
 
 
 class ModuleLoader:
+    @classmethod
+    @contextmanager
+    def with_sys_path(cls, *paths: Path) -> t.Iterator[ModuleLoader]:
+        sys.path.extend(str(path) for path in paths)
+        loader = cls()
+        try:
+            yield loader
+
+        finally:
+            loader.clear_cache()
+
+            for path in paths:
+                sys.path.remove(str(path))
+
     @lru_cache_method()
     def load(self, info: t.Union[PackageInfo, ModuleInfo, Path]) -> ModuleType:
         return import_module_path(info) if isinstance(info, Path) else importlib.import_module(info.qualname)
+
+    def clear_cache(self) -> None:
+        self.load.cache_clear()  # type: ignore[attr-defined]
+        importlib.invalidate_caches()
 
 
 class TypeLoader:

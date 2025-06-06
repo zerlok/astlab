@@ -13,7 +13,8 @@ if t.TYPE_CHECKING:
     import ast
 
     from astlab._typing import Self
-    from astlab.types import ModuleInfo, PackageInfo
+    from astlab.abc import ASTResolver
+    from astlab.types import ModuleInfo, PackageInfo, TypeInspector
 
 
 @dataclass()
@@ -28,10 +29,14 @@ class BuildContext:
         packages: t.MutableSequence[PackageInfo],
         dependencies: t.MutableMapping[ModuleInfo, t.MutableSet[ModuleInfo]],
         scopes: t.MutableSequence[Scope],
+        resolver: ASTResolver,
+        inspector: TypeInspector,
     ) -> None:
         self.__packages = packages
         self.__dependencies = dependencies
         self.__scopes = scopes
+        self.__inspector = inspector
+        self.__resolver = resolver
         self.__module: t.Optional[ModuleInfo] = None
 
     @property
@@ -57,17 +62,23 @@ class BuildContext:
 
     def leave_module(self) -> Scope:
         assert len(self.__scopes) == 1
-        scope = self.leave_scope()
         self.__module = None
-        return scope
+        return self.leave_scope()
 
     def enter_scope(self, name: t.Optional[str], body: list[ast.stmt]) -> Scope:
         scope = Scope(name, body)
         self.__scopes.append(scope)
+
+        self.__notify_scope()
+
         return scope
 
     def leave_scope(self) -> Scope:
-        return self.__scopes.pop()
+        scope = self.__scopes.pop()
+
+        self.__notify_scope()
+
+        return scope
 
     @property
     def namespace(self) -> t.Sequence[str]:
@@ -98,3 +109,18 @@ class BuildContext:
 
     def extend_body(self, stmts: t.Sequence[t.Optional[ast.stmt]]) -> None:
         self.current_body.extend(stmt for stmt in stmts if stmt is not None)
+
+    @property
+    def inspector(self) -> TypeInspector:
+        return self.__inspector
+
+    @property
+    def resolver(self) -> ASTResolver:
+        return self.__resolver
+
+    def __notify_scope(self) -> None:
+        self.__resolver.set_current_scope(
+            module=self.__module,
+            namespace=self.namespace,
+            dependencies=self.__dependencies[self.__module] if self.__module is not None else set(),
+        )

@@ -9,12 +9,14 @@ __all__ = [
 
 import typing as t
 
+from astlab.cache import lru_cache_method
 from astlab.types.model import LiteralTypeInfo, ModuleInfo, NamedTypeInfo, RuntimeType, TypeInfo
 
 
 class TypeInspector:
     """Provides type info from runtime type."""
 
+    @lru_cache_method()
     def inspect(self, type_: RuntimeType) -> TypeInfo:
         if isinstance(
             type_,
