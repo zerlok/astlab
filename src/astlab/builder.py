@@ -123,6 +123,12 @@ class _BaseBuilder:
     def _scope(self) -> ScopeASTBuilder:
         return ScopeASTBuilder(self._context)
 
+    def _normalize_expr(self, expr: TypeRef, *tail: str) -> ast.expr:
+        return self._context.resolver.resolve_expr(expr, *tail)
+
+    def _normalize_body(self, body: t.Sequence[Stmt], docs: t.Optional[t.Sequence[str]] = None) -> list[ast.stmt]:
+        return self._context.resolver.resolve_stmts(*body, docs=docs, pass_if_empty=True)
+
 
 # noinspection PyTypeChecker
 class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
@@ -159,7 +165,7 @@ class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     @override
     def build_expr(self) -> ast.expr:
-        return self._context.resolver.resolve_expr(self.__factory())
+        return self._normalize_expr(self.__factory())
 
     def stmt(self, *, append: bool = True) -> ast.stmt:
         node = ast.Expr(value=self.build_expr())
@@ -170,7 +176,7 @@ class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def __bool_op_expr(self, op: ast.boolop, right: Expr) -> Self:
         def create() -> ast.expr:
-            return ast.BoolOp(op=op, values=[self.build_expr(), self._context.resolver.resolve_expr(right)])
+            return ast.BoolOp(op=op, values=[self.build_expr(), self._normalize_expr(right)])
 
         return self.__class__(context=self._context, factory=create)
 
@@ -182,7 +188,7 @@ class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def __bin_op_expr(self, op: ast.operator, right: Expr) -> Self:
         def create() -> ast.expr:
-            return ast.BinOp(left=self.build_expr(), op=op, right=self._context.resolver.resolve_expr(right))
+            return ast.BinOp(left=self.build_expr(), op=op, right=self._normalize_expr(right))
 
         return self.__class__(self._context, create)
 
@@ -256,7 +262,7 @@ class AttrASTBuilder(BaseASTExpressionBuilder):
         return self._scope.assign_stmt(self, value)
 
     def __create_expr(self) -> Expr:
-        return self._context.resolver.resolve_expr(
+        return self._normalize_expr(
             ast.Name(id=self.__head) if isinstance(self.__head, str) else self.__head,
             *self.__tail,
         )
@@ -307,12 +313,9 @@ class CallASTBuilder(BaseASTExpressionBuilder):
 
     def __create_expr(self) -> Expr:
         node: ast.expr = ast.Call(
-            func=self._context.resolver.resolve_expr(self.__func),
-            args=[self._context.resolver.resolve_expr(arg) for arg in self.__args],
-            keywords=[
-                ast.keyword(arg=key, value=self._context.resolver.resolve_expr(kwarg))
-                for key, kwarg in self.__kwargs.items()
-            ],
+            func=self._normalize_expr(self.__func),
+            args=[self._normalize_expr(arg) for arg in self.__args],
+            keywords=[ast.keyword(arg=key, value=self._normalize_expr(kwarg)) for key, kwarg in self.__kwargs.items()],
             lineno=0,
         )
 
@@ -471,7 +474,7 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     @override
     def build_expr(self) -> ast.expr:
-        return self._context.resolver.resolve_expr(self.__transform(self._context, self.__info))
+        return self._normalize_expr(self.__transform(self._context, self.__info))
 
     def __ident(self, context: BuildContext, info: TypeInfo) -> Expr:
         return context.resolver.resolve_expr(info)
@@ -515,9 +518,9 @@ class ScopeASTBuilder(_BaseBuilder):
     @_ast_expr_builder
     def compare_expr(self, left: Expr, tests: t.Sequence[tuple[ast.cmpop, Expr]]) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[op for op, _ in tests],
-            comparators=[self._context.resolver.resolve_expr(comp) for _, comp in tests],
+            comparators=[self._normalize_expr(comp) for _, comp in tests],
         )
 
     @_ast_expr_builder
@@ -528,9 +531,9 @@ class ScopeASTBuilder(_BaseBuilder):
         or_else: Expr,
     ) -> Expr:
         return ast.IfExp(
-            test=self._context.resolver.resolve_expr(test),
-            body=self._context.resolver.resolve_expr(body),
-            orelse=self._context.resolver.resolve_expr(or_else),
+            test=self._normalize_expr(test),
+            body=self._normalize_expr(body),
+            orelse=self._normalize_expr(or_else),
         )
 
     @_ast_expr_builder
@@ -549,9 +552,9 @@ class ScopeASTBuilder(_BaseBuilder):
     @_ast_expr_builder
     def tuple_expr(self, *items: TypeRef, normalize: bool = False) -> Expr:
         if normalize and len(items) == 1:
-            return self._context.resolver.resolve_expr(items[0])
+            return self._normalize_expr(items[0])
 
-        return ast.Tuple(elts=[self._context.resolver.resolve_expr(item) for item in items])
+        return ast.Tuple(elts=[self._normalize_expr(item) for item in items])
 
     @t.overload
     def set_expr(self, items: t.Union[Comprehension, t.Sequence[Comprehension]], element: Expr) -> Expr: ...
@@ -569,12 +572,12 @@ class ScopeASTBuilder(_BaseBuilder):
             assert element is not None
 
             return ast.SetComp(
-                elt=self._context.resolver.resolve_expr(element),
+                elt=self._normalize_expr(element),
                 generators=self.__build_comprehensions(items),
             )
 
         elif self.__is_expression_collection(items):
-            return ast.Set(elts=[self._context.resolver.resolve_expr(item) for item in items])
+            return ast.Set(elts=[self._normalize_expr(item) for item in items])
 
         else:
             # TODO: make assert_never work
@@ -596,12 +599,12 @@ class ScopeASTBuilder(_BaseBuilder):
             assert element is not None
 
             return ast.ListComp(
-                elt=self._context.resolver.resolve_expr(element),
+                elt=self._normalize_expr(element),
                 generators=self.__build_comprehensions(items),
             )
 
         elif self.__is_expression_sequence(items):
-            return ast.List(elts=[self._context.resolver.resolve_expr(item) for item in items])
+            return ast.List(elts=[self._normalize_expr(item) for item in items])
 
         else:
             # TODO: make assert_never work
@@ -630,8 +633,8 @@ class ScopeASTBuilder(_BaseBuilder):
             assert value is not None
 
             return ast.DictComp(
-                key=self._context.resolver.resolve_expr(key),
-                value=self._context.resolver.resolve_expr(value),
+                key=self._normalize_expr(key),
+                value=self._normalize_expr(value),
                 generators=self.__build_comprehensions(items),
             )
 
@@ -640,8 +643,8 @@ class ScopeASTBuilder(_BaseBuilder):
             values = list[ast.expr]()
 
             for k, v in items.items():
-                keys.append(self._context.resolver.resolve_expr(k))
-                values.append(self._context.resolver.resolve_expr(v))
+                keys.append(self._normalize_expr(k))
+                values.append(self._normalize_expr(v))
 
             return ast.Dict(keys=keys, values=values)
 
@@ -651,70 +654,70 @@ class ScopeASTBuilder(_BaseBuilder):
 
     @_ast_expr_builder
     def not_op(self, expr: Expr) -> Expr:
-        return ast.UnaryOp(op=ast.Not(), operand=self._context.resolver.resolve_expr(expr))
+        return ast.UnaryOp(op=ast.Not(), operand=self._normalize_expr(expr))
 
     @_ast_expr_builder
     def compare_is_expr(self, left: Expr, right: Expr) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[ast.Is()],
-            comparators=[self._context.resolver.resolve_expr(right)],
+            comparators=[self._normalize_expr(right)],
         )
 
     @_ast_expr_builder
     def compare_is_not_expr(self, left: Expr, right: Expr) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[ast.IsNot()],
-            comparators=[self._context.resolver.resolve_expr(right)],
+            comparators=[self._normalize_expr(right)],
         )
 
     @_ast_expr_builder
     def compare_eq_expr(self, left: Expr, right: Expr) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[ast.Eq()],
-            comparators=[self._context.resolver.resolve_expr(right)],
+            comparators=[self._normalize_expr(right)],
         )
 
     @_ast_expr_builder
     def compare_not_eq_expr(self, left: Expr, right: Expr) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[ast.NotEq()],
-            comparators=[self._context.resolver.resolve_expr(right)],
+            comparators=[self._normalize_expr(right)],
         )
 
     @_ast_expr_builder
     def compare_lt_expr(self, left: Expr, right: Expr) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[ast.Lt()],
-            comparators=[self._context.resolver.resolve_expr(right)],
+            comparators=[self._normalize_expr(right)],
         )
 
     @_ast_expr_builder
     def compare_lte_expr(self, left: Expr, right: Expr) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[ast.LtE()],
-            comparators=[self._context.resolver.resolve_expr(right)],
+            comparators=[self._normalize_expr(right)],
         )
 
     @_ast_expr_builder
     def compare_gt_expr(self, left: Expr, right: Expr) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[ast.Gt()],
-            comparators=[self._context.resolver.resolve_expr(right)],
+            comparators=[self._normalize_expr(right)],
         )
 
     @_ast_expr_builder
     def compare_gte_expr(self, left: Expr, right: Expr) -> Expr:
         return ast.Compare(
-            left=self._context.resolver.resolve_expr(left),
+            left=self._normalize_expr(left),
             ops=[ast.GtE()],
-            comparators=[self._context.resolver.resolve_expr(right)],
+            comparators=[self._normalize_expr(right)],
         )
 
     def attr(self, head: t.Union[str, TypeRef], *tail: str) -> AttrASTBuilder:
@@ -731,22 +734,22 @@ class ScopeASTBuilder(_BaseBuilder):
     @_ast_expr_builder
     def generic_type(self, generic: TypeRef, *args: TypeRef) -> Expr:
         if len(args) == 0:
-            return self._context.resolver.resolve_expr(generic)
+            return self._normalize_expr(generic)
 
         if len(args) == 1:
             return ast.Subscript(
-                value=self._context.resolver.resolve_expr(generic),
-                slice=self._context.resolver.resolve_expr(args[0]),
+                value=self._normalize_expr(generic),
+                slice=self._normalize_expr(args[0]),
             )
 
         return ast.Subscript(
-            value=self._context.resolver.resolve_expr(generic),
-            slice=self._context.resolver.resolve_expr(self.tuple_expr(*args)),
+            value=self._normalize_expr(generic),
+            slice=self._normalize_expr(self.tuple_expr(*args)),
         )
 
     def literal_type(self, *args: t.Union[str, Expr]) -> Expr:
         if not args:
-            return self._context.resolver.resolve_expr(predef().no_return)
+            return self._normalize_expr(predef().no_return)
 
         return self.generic_type(
             predef().literal,
@@ -790,16 +793,16 @@ class ScopeASTBuilder(_BaseBuilder):
     def field_def(self, name: str, annotation: TypeRef, default: t.Optional[Expr] = None) -> ast.stmt:
         return ast.AnnAssign(
             target=ast.Name(id=name),
-            annotation=self._context.resolver.resolve_expr(annotation),
-            value=self._context.resolver.resolve_expr(default) if default is not None else None,
+            annotation=self._normalize_expr(annotation),
+            value=self._normalize_expr(default) if default is not None else None,
             simple=1,
         )
 
     @_ast_stmt_builder
     def assign_stmt(self, target: t.Union[str, Expr], value: Expr) -> ast.stmt:
         return ast.Assign(
-            targets=[self._context.resolver.resolve_expr(self.attr(target))],
-            value=self._context.resolver.resolve_expr(value),
+            targets=[self._normalize_expr(self.attr(target))],
+            value=self._normalize_expr(value),
             lineno=0,
         )
 
@@ -823,7 +826,7 @@ class ScopeASTBuilder(_BaseBuilder):
     @_ast_stmt_builder
     def return_stmt(self, value: Expr) -> ast.stmt:
         return ast.Return(
-            value=self._context.resolver.resolve_expr(value),
+            value=self._normalize_expr(value),
             lineno=0,
         )
 
@@ -831,7 +834,7 @@ class ScopeASTBuilder(_BaseBuilder):
     def yield_stmt(self, value: Expr) -> ast.stmt:
         return ast.Expr(
             value=ast.Yield(
-                value=self._context.resolver.resolve_expr(value),
+                value=self._normalize_expr(value),
                 lineno=0,
             ),
         )
@@ -842,8 +845,8 @@ class ScopeASTBuilder(_BaseBuilder):
     @_ast_stmt_builder
     def raise_stmt(self, err: Expr, cause: t.Optional[Expr] = None) -> ast.stmt:
         return ast.Raise(
-            exc=self._context.resolver.resolve_expr(err),
-            cause=self._context.resolver.resolve_expr(cause) if cause is not None else None,
+            exc=self._normalize_expr(err),
+            cause=self._normalize_expr(cause) if cause is not None else None,
         )
 
     def with_stmt(self) -> WithStatementASTBuilder:
@@ -879,9 +882,9 @@ class ScopeASTBuilder(_BaseBuilder):
     ) -> list[ast.comprehension]:
         return [
             ast.comprehension(
-                target=self._context.resolver.resolve_expr(compr.target),
-                iter=self._context.resolver.resolve_expr(compr.items),
-                ifs=[self._context.resolver.resolve_expr(predicate) for predicate in compr.predicates or ()],
+                target=self._normalize_expr(compr.target),
+                iter=self._normalize_expr(compr.items),
+                ifs=[self._normalize_expr(predicate) for predicate in compr.predicates or ()],
                 is_async=compr.is_async,
             )
             for compr in ([comprehensions] if isinstance(comprehensions, Comprehension) else comprehensions)
@@ -941,8 +944,8 @@ class WhileStatementASTBuilder(_NestedBlockASTBuilder):
     def build_stmt(self) -> t.Sequence[ast.stmt]:
         return [
             ast.While(
-                test=self._context.resolver.resolve_expr(self.__test),
-                body=self.__body or [ast.Pass()],
+                test=self._normalize_expr(self.__test),
+                body=self._normalize_body(self.__body),
                 orelse=self.__else,
                 lineno=0,
             ),
@@ -974,16 +977,16 @@ class ForStatementASTBuilder(_NestedBlockASTBuilder):
         return [
             ast.AsyncFor(
                 target=ast.Name(id=self.__target),
-                iter=self._context.resolver.resolve_expr(self.__items),
-                body=self.__body or [ast.Pass()],
+                iter=self._normalize_expr(self.__items),
+                body=self._normalize_body(self.__body),
                 orelse=self.__else,
                 lineno=0,
             )
             if self.__is_async
             else ast.For(
                 target=ast.Name(id=self.__target),
-                iter=self._context.resolver.resolve_expr(self.__items),
-                body=self.__body or [ast.Pass()],
+                iter=self._normalize_expr(self.__items),
+                body=self._normalize_body(self.__body),
                 orelse=self.__else,
                 lineno=0,
             ),
@@ -1017,7 +1020,7 @@ class WithStatementASTBuilder(_NestedBlockASTBuilder):
 
         items = [
             ast.withitem(
-                context_expr=self._context.resolver.resolve_expr(cm),
+                context_expr=self._normalize_expr(cm),
                 optional_vars=ast.Name(id=name) if name is not None else None,
             )
             for cm, name in self.__cms
@@ -1026,13 +1029,13 @@ class WithStatementASTBuilder(_NestedBlockASTBuilder):
         return [
             ast.AsyncWith(
                 items=items,
-                body=self.__body or [ast.Pass()],
+                body=self._normalize_body(self.__body),
                 lineno=0,
             )
             if self.__is_async
             else ast.With(
                 items=items,
-                body=self.__body or [ast.Pass()],
+                body=self._normalize_body(self.__body),
                 lineno=0,
             ),
         ]
@@ -1056,8 +1059,8 @@ class IfStatementASTBuilder(_NestedBlockASTBuilder):
     def build_stmt(self) -> t.Sequence[ast.stmt]:
         return [
             ast.If(
-                test=self._context.resolver.resolve_expr(self.__test),
-                body=self.__body or [ast.Pass()],
+                test=self._normalize_expr(self.__test),
+                body=self._normalize_body(self.__body),
                 orelse=self.__else,
                 lineno=0,
             ),
@@ -1114,7 +1117,7 @@ class TryStatementASTBuilder(_NestedBlockASTBuilder):
                 body=self.__body,
                 handlers=[
                     ast.ExceptHandler(
-                        type=self._context.resolver.resolve_expr(scope.tuple_expr(*handler.types, normalize=True)),
+                        type=self._normalize_expr(scope.tuple_expr(*handler.types, normalize=True)),
                         name=handler.name,
                         body=handler.body or [ast.Pass()],
                     )
@@ -1210,12 +1213,13 @@ class ClassScopeASTBuilder(ScopeASTBuilder, TypeDefinitionBuilder):
 
 # noinspection PyTypeChecker
 class ClassStatementASTBuilder(
+    _BaseBuilder,
     t.ContextManager[ClassScopeASTBuilder],
     ASTStatementBuilder,
     TypeDefinitionBuilder,
 ):
     def __init__(self, context: BuildContext, name: str) -> None:
-        self._context = context
+        super().__init__(context)
         self.__info = NamedTypeInfo(name=name, module=self._context.module, namespace=self._context.namespace)
         self.__bases = list[TypeRef]()
         self.__decorators = list[TypeRef]()
@@ -1295,14 +1299,12 @@ class ClassStatementASTBuilder(
                     name=self.__info.name,
                     bases=self.__build_bases(),
                     keywords=self.__build_keywords(),
-                    body=self.__body or [ast.Pass()],
+                    body=self._normalize_body(self.__body, self.__docs),
                     decorator_list=self.__build_decorators(),
                     type_params=[
                         ast.TypeVar(
                             name=type_var.name,
-                            bound=self._context.resolver.resolve_expr(type_var.bound)
-                            if type_var.bound is not None
-                            else None,
+                            bound=self._normalize_expr(type_var.bound) if type_var.bound is not None else None,
                         )
                         for type_var in self.__type_vars
                     ],
@@ -1318,22 +1320,19 @@ class ClassStatementASTBuilder(
                     name=self.__info.name,
                     bases=self.__build_bases(),
                     keywords=self.__build_keywords(),
-                    body=self.__body or [ast.Pass()],
+                    body=self._normalize_body(self.__body, self.__docs),
                     decorator_list=self.__build_decorators(),
                 ),
             ]
 
     def __build_bases(self) -> list[ast.expr]:
-        return [self._context.resolver.resolve_expr(base) for base in self.__bases]
+        return [self._normalize_expr(base) for base in self.__bases]
 
     def __build_keywords(self) -> list[ast.keyword]:
-        return [
-            ast.keyword(arg=key, value=self._context.resolver.resolve_expr(value))
-            for key, value in self.__keywords.items()
-        ]
+        return [ast.keyword(arg=key, value=self._normalize_expr(value)) for key, value in self.__keywords.items()]
 
     def __build_decorators(self) -> list[ast.expr]:
-        return [self._context.resolver.resolve_expr(dec) for dec in self.__decorators]
+        return [self._normalize_expr(dec) for dec in self.__decorators]
 
 
 class FuncTypeRefBuilder(ASTExpressionBuilder):
@@ -1348,12 +1347,13 @@ class FuncTypeRefBuilder(ASTExpressionBuilder):
 
 # noinspection PyTypeChecker
 class FuncStatementASTBuilder(
+    _BaseBuilder,
     t.ContextManager[ScopeASTBuilder],
     ASTStatementBuilder,
     TypeDefinitionBuilder,
 ):
     def __init__(self, context: BuildContext, name: str) -> None:
-        self._context = context
+        super().__init__(context)
         self.__info = NamedTypeInfo(name=name, module=self._context.module, namespace=self._context.namespace)
         self.__decorators = list[TypeRef]()
         self.__args = list[tuple[str, t.Optional[TypeRef]]]()
@@ -1487,10 +1487,7 @@ class FuncStatementASTBuilder(
                 predef().async_context_manager_decorator if self.__is_async else predef().context_manager_decorator
             )
 
-        return [
-            self._context.resolver.resolve_expr(dec)
-            for dec in chain(head_decorators, self.__decorators, last_decorators)
-        ]
+        return [self._normalize_expr(dec) for dec in chain(head_decorators, self.__decorators, last_decorators)]
 
     def __build_args(self) -> ast.arguments:
         return ast.arguments(
@@ -1498,27 +1495,19 @@ class FuncStatementASTBuilder(
             args=[
                 ast.arg(
                     arg=arg,
-                    annotation=self._context.resolver.resolve_expr(annotation) if annotation is not None else None,
+                    annotation=self._normalize_expr(annotation) if annotation is not None else None,
                 )
                 for arg, annotation in self.__args
             ],
-            defaults=[
-                self._context.resolver.resolve_expr(self.__defaults[arg])
-                for arg, _ in self.__args
-                if arg in self.__defaults
-            ],
+            defaults=[self._normalize_expr(self.__defaults[arg]) for arg, _ in self.__args if arg in self.__defaults],
             kwonlyargs=[
                 ast.arg(
                     arg=arg,
-                    annotation=self._context.resolver.resolve_expr(annotation) if annotation is not None else None,
+                    annotation=self._normalize_expr(annotation) if annotation is not None else None,
                 )
                 for arg, annotation in self.__kwargs.items()
             ],
-            kw_defaults=[
-                self._context.resolver.resolve_expr(self.__defaults[key])
-                for key in self.__kwargs
-                if key in self.__defaults
-            ],
+            kw_defaults=[self._normalize_expr(self.__defaults[key]) for key in self.__kwargs if key in self.__defaults],
         )
 
     def __build_returns(self, scope: ScopeASTBuilder) -> t.Optional[ast.expr]:
@@ -1529,7 +1518,7 @@ class FuncStatementASTBuilder(
         if self.__iterator_cm:
             ret = scope.iterator_type(ret, is_async=self.__is_async)
 
-        return self._context.resolver.resolve_expr(ret)
+        return self._normalize_expr(ret)
 
     def __build_body(self) -> list[ast.stmt]:
         body: t.Sequence[Stmt]
@@ -1543,7 +1532,7 @@ class FuncStatementASTBuilder(
         else:
             body = self.__body
 
-        return self._context.resolver.resolve_stmts(*body, docs=self.__docs, pass_if_empty=True)
+        return self._normalize_body(body, self.__docs)
 
 
 class MethodScopeASTBuilder(ScopeASTBuilder):

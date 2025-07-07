@@ -35,13 +35,15 @@ def build_empty_module() -> ModuleASTBuilder:
 
 @_to_module_param
 def build_simple_module() -> ModuleASTBuilder:
-    """
+    # noinspection PySingleQuotedDocstring
+    '''
     import abc
     import builtins
     import dataclasses
     import typing
 
     class Foo:
+        """Docstring Foo."""
 
         @dataclasses.dataclass()
         class Bar:
@@ -53,6 +55,7 @@ def build_simple_module() -> ModuleASTBuilder:
             self.__my_bar = my_bar
 
         def do_stuff(self, x: builtins.int) -> builtins.str:
+            """Docstring do_stuff."""
             self.__some = Foo.Bar(x=x)
             x_str = builtins.str(x)
             return y.__str__()
@@ -60,11 +63,11 @@ def build_simple_module() -> ModuleASTBuilder:
         @abc.abstractmethod
         def do_buzz(self) -> builtins.object:
             raise NotImplementedError
-    """
+    '''
 
     with (
         build_module("simple") as mod,
-        mod.class_def("Foo") as foo,
+        mod.class_def("Foo").docstring("Docstring Foo.") as foo,
     ):
         with mod.class_def("Bar").dataclass() as bar:
             mod.field_def("spam", int)
@@ -74,7 +77,7 @@ def build_simple_module() -> ModuleASTBuilder:
         with foo.init_self_attrs_def({"my_bar": bar}):
             pass
 
-        with foo.method_def("do_stuff").arg("x", int).returns(str):
+        with foo.method_def("do_stuff").arg("x", int).returns(str).docstring("Docstring do_stuff."):
             mod.assign_stmt(mod.attr("self", "__some"), bar.ref().init().kwarg("x", mod.attr("x")))
             mod.assign_stmt("x_str", mod.call(str, [mod.attr("x")]))
             mod.return_stmt(mod.attr("y").attr("__str__").call())
