@@ -2,6 +2,7 @@ from __future__ import annotations
 
 __all__ = [
     "ASTExpressionBuilder",
+    "ASTLabError",
     "ASTResolver",
     "ASTStatementBuilder",
     "Expr",
@@ -19,6 +20,10 @@ from astlab.types import ModuleInfo, RuntimeType, TypeInfo
 
 if t.TYPE_CHECKING:
     from astlab._typing import TypeAlias
+
+
+class ASTLabError(Exception):
+    """Base exception for all errors in AST lab library."""
 
 
 class ASTExpressionBuilder(metaclass=abc.ABCMeta):

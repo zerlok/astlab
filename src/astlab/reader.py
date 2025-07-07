@@ -29,13 +29,21 @@ def iter_package_modules(path: Path) -> t.Iterable[Path]:
 
 def import_module_path(path: Path) -> ModuleType:
     # Find the shortest relative path to module.
-    relpath, src = min((path.relative_to(pypath), Path(pypath)) for pypath in sys.path if path.is_relative_to(pypath))
+    relpath, src = min(
+        ((path.relative_to(pypath), Path(pypath)) for pypath in sys.path if path.is_relative_to(pypath)),
+        key=_get_rel_path_parts_count,
+    )
 
     # Build qualified name using the shortest relative path.
     # Avoid `.py` in last part.
     qualname = ".".join((*relpath.parts[:-1], relpath.stem))
 
     return importlib.import_module(qualname)
+
+
+def _get_rel_path_parts_count(args: tuple[Path, Path]) -> int:
+    relpath, _ = args
+    return len(relpath.parts)
 
 
 def parse_module(source: t.Union[str, t.IO[str]], *, indented: bool = False) -> ast.Module:

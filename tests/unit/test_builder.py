@@ -5,7 +5,7 @@ import typing as t
 import pytest
 from _pytest.mark import ParameterSet
 
-from astlab.builder import ModuleASTBuilder, build_module, build_package
+from astlab.builder import Comprehension, ModuleASTBuilder, build_module, build_package
 from astlab.reader import parse_module
 
 _PARAMS: t.Final[list[ParameterSet]] = []
@@ -49,7 +49,7 @@ def build_simple_module() -> ModuleASTBuilder:
 
         bars: typing.Optional[builtins.list[Bar]]
 
-        def __init__(self, my_bar: Foo.Bar) -> None:
+        def __init__(self, my_bar: Bar) -> None:
             self.__my_bar = my_bar
 
         def do_stuff(self, x: builtins.int) -> builtins.str:
@@ -190,6 +190,41 @@ def build_list_compr_expr() -> ModuleASTBuilder:
     """
 
     with build_module("types") as mod:
-        mod.assign_stmt("result", mod.list_expr(mod.attr("iterable"), mod.attr("target"), mod.attr("item")))
+        mod.assign_stmt(
+            "result",
+            mod.list_expr(Comprehension(mod.attr("target"), mod.attr("iterable")), mod.attr("item")),
+        )
+
+        return mod
+
+
+@_to_module_param
+def build_try_except_else() -> ModuleASTBuilder:
+    """
+    import builtins
+
+    try:
+        1 / 0
+    except builtins.ZeroDivisionError:
+        print("zero division error")
+    else:
+        print("else")
+    finally:
+        print("finally")
+    """
+
+    with build_module("zero") as mod:
+        with mod.try_stmt() as try_stmt:
+            with try_stmt.body() as try_scope:
+                (try_scope.const(1) / try_scope.const(0)).stmt()
+
+            with try_stmt.except_(ZeroDivisionError) as except_scope:
+                except_scope.attr("print").call().arg(except_scope.const("zero division error")).stmt()
+
+            with try_stmt.else_() as else_scope:
+                else_scope.stmt(else_scope.attr("print").call().arg(else_scope.const("else")))
+
+            with try_stmt.finally_() as fin_scope:
+                fin_scope.stmt(fin_scope.attr("print").call().arg(fin_scope.const("finally")))
 
         return mod

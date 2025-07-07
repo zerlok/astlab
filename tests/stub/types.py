@@ -15,3 +15,6 @@ class StubX:
     class Y:
         class Z:
             pass
+
+
+StubInt = t.NewType("StubInt", int)

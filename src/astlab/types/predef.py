@@ -55,6 +55,10 @@ class Predef:
         return NamedTypeInfo("contextmanager", self.contextlib_module)
 
     @cached_property
+    def object(self) -> NamedTypeInfo:
+        return NamedTypeInfo("object", self.builtins_module)
+
+    @cached_property
     def none_type(self) -> NamedTypeInfo:
         return none_type_info()
 
@@ -75,6 +79,18 @@ class Predef:
         return NamedTypeInfo("float", self.builtins_module)
 
     @cached_property
+    def complex(self) -> NamedTypeInfo:
+        return NamedTypeInfo("complex", self.builtins_module)
+
+    @cached_property
+    def bytes(self) -> NamedTypeInfo:
+        return NamedTypeInfo("bytes", self.builtins_module)
+
+    @cached_property
+    def bytearray(self) -> NamedTypeInfo:
+        return NamedTypeInfo("bytearray", self.builtins_module)
+
+    @cached_property
     def str(self) -> NamedTypeInfo:
         return NamedTypeInfo("str", self.builtins_module)
 
@@ -91,6 +107,10 @@ class Predef:
         return NamedTypeInfo("set", self.builtins_module)
 
     @cached_property
+    def frozenset(self) -> NamedTypeInfo:
+        return NamedTypeInfo("frozenset", self.builtins_module)
+
+    @cached_property
     def property(self) -> NamedTypeInfo:
         return NamedTypeInfo("property", self.builtins_module)
 
@@ -105,6 +125,10 @@ class Predef:
     @cached_property
     def abstractmethod(self) -> NamedTypeInfo:
         return NamedTypeInfo("abstractmethod", self.abc_module)
+
+    @cached_property
+    def any(self) -> NamedTypeInfo:
+        return NamedTypeInfo("Any", self.typing_module)
 
     @cached_property
     def generic(self) -> NamedTypeInfo:
@@ -133,6 +157,10 @@ class Predef:
     @cached_property
     def container(self) -> NamedTypeInfo:
         return NamedTypeInfo("Container", self.typing_module)
+
+    @cached_property
+    def collection(self) -> NamedTypeInfo:
+        return NamedTypeInfo("Collection", self.typing_module)
 
     @cached_property
     def sequence(self) -> NamedTypeInfo:

@@ -81,6 +81,7 @@ class TypeLoader:
 
             # TODO: fix recursive type
             type_params = tuple(self.load(tp) for tp in info.type_params)
+            # TODO: fix invalid syntax in <=3.10
             return type_[*type_params] if len(type_params) > 1 else type_[type_params[0]]  # type: ignore[index,misc]
 
         elif isinstance(info, LiteralTypeInfo):

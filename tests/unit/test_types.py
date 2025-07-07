@@ -19,7 +19,7 @@ from astlab.types.model import (
     builtins_module_info,
     none_type_info,
 )
-from tests.stub.types import StubBar, StubFoo, StubX
+from tests.stub.types import StubBar, StubFoo, StubInt, StubX
 
 
 class TestPackageInfo:
@@ -319,8 +319,8 @@ TYPES_CASES = pytest.mark.parametrize(
             StubBar[StubFoo],
             "tests.stub.types.StubBar[tests.stub.types.StubFoo]",
             NamedTypeInfo(
-                "StubBar",
-                ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
+                name="StubBar",
+                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
                 type_params=(NamedTypeInfo("StubFoo", ModuleInfo("types", PackageInfo("stub", PackageInfo("tests")))),),
             ),
         ),
@@ -328,9 +328,17 @@ TYPES_CASES = pytest.mark.parametrize(
             StubX.Y.Z,
             "tests.stub.types.StubX.Y.Z",
             NamedTypeInfo(
-                "Z",
-                ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
+                name="Z",
+                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
                 namespace=("StubX", "Y"),
+            ),
+        ),
+        pytest.param(
+            StubInt,
+            "tests.stub.types.StubInt",
+            NamedTypeInfo(
+                name="StubInt",
+                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
             ),
         ),
     ],
