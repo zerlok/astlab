@@ -133,7 +133,7 @@ class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
     def __neg__(self) -> Self:
         return self.__unary_op_expr(ast.Not())
 
-    def __invert__(self, other: Expr) -> Self:
+    def __invert__(self) -> Self:
         return self.__unary_op_expr(ast.Invert())
 
     def __and__(self, other: Expr) -> Self:
@@ -193,9 +193,9 @@ def _ast_expr_builder(
     @wraps(func)
     def wrapper(self: _BaseBuilder, *args: P.args, **kwargs: P.kwargs) -> BaseASTExpressionBuilder:
         assert isinstance(self, _BaseBuilder)
-        return BaseASTExpressionBuilder(self._context, partial(func, self, *args, **kwargs))
+        return BaseASTExpressionBuilder(self._context, partial(func, self, *args, **kwargs))  # type: ignore[arg-type]
 
-    return wrapper
+    return wrapper  # type: ignore[return-value]
 
 
 def _ast_stmt_builder(
@@ -205,12 +205,12 @@ def _ast_stmt_builder(
     def wrapper(self: _BaseBuilder, *args: P.args, **kwargs: P.kwargs) -> ast.stmt:
         assert isinstance(self, _BaseBuilder)
 
-        node = func(self, *args, **kwargs)
+        node = func(self, *args, **kwargs)  # type: ignore[arg-type]
         self._context.append_body(node)
 
         return node
 
-    return wrapper
+    return wrapper  # type: ignore[return-value]
 
 
 class AttrASTBuilder(BaseASTExpressionBuilder):
@@ -326,24 +326,24 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
     def __init__(
         self,
         context: BuildContext,
-        info: NamedTypeInfo,
-        transform: t.Optional[t.Callable[[BuildContext, NamedTypeInfo], Expr]] = None,
+        info: TypeInfo,
+        transform: t.Optional[t.Callable[[BuildContext, TypeInfo], Expr]] = None,
     ) -> None:
         super().__init__(context)
         self.__info = info
-        self.__transform: t.Callable[[BuildContext, NamedTypeInfo], Expr] = (
+        self.__transform: t.Callable[[BuildContext, TypeInfo], Expr] = (
             transform if transform is not None else self.__ident
         )
 
     @property
-    def info(self) -> NamedTypeInfo:
+    def info(self) -> TypeInfo:
         return self.__info
 
     def optional(self) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.optional_type(inner(context, info))
 
@@ -351,9 +351,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def collection(self) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.collection_type(inner(context, info))
 
@@ -361,9 +361,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def set(self) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.generic_type(set, inner(context, info))
 
@@ -371,9 +371,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def sequence(self, *, mutable: bool = False) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.sequence_type(inner(context, info), mutable=mutable)
 
@@ -381,9 +381,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def list(self) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.generic_type(list, inner(context, info))
 
@@ -391,9 +391,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def mapping_key(self, value: TypeRef, *, mutable: bool = False) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.mapping_type(inner(context, info), value, mutable=mutable)
 
@@ -401,9 +401,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def dict_key(self, value: TypeRef) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.generic_type(dict, inner(context, info), value)
 
@@ -411,9 +411,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def mapping_value(self, key: TypeRef, *, mutable: bool = False) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.mapping_type(key, inner(context, info), mutable=mutable)
 
@@ -421,9 +421,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def dict_value(self, key: TypeRef) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.generic_type(dict, key, inner(context, info))
 
@@ -431,9 +431,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def context_manager(self, *, is_async: bool = False) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.context_manager_type(inner(context, info), is_async=is_async)
 
@@ -441,9 +441,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def iterator(self, *, is_async: bool = False) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.iterable_type(inner(context, info), is_async=is_async)
 
@@ -451,9 +451,9 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
     def iterable(self, *, is_async: bool = False) -> ClassTypeRefBuilder:
         def transform(
-            inner: t.Callable[[BuildContext, NamedTypeInfo], Expr],
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
             context: BuildContext,
-            info: NamedTypeInfo,
+            info: TypeInfo,
         ) -> Expr:
             return self._scope.iterable_type(inner(context, info), is_async=is_async)
 
@@ -473,12 +473,12 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
     def build_expr(self) -> ast.expr:
         return self._context.resolver.resolve_expr(self.__transform(self._context, self.__info))
 
-    def __ident(self, context: BuildContext, info: NamedTypeInfo) -> Expr:
+    def __ident(self, context: BuildContext, info: TypeInfo) -> Expr:
         return context.resolver.resolve_expr(info)
 
     def __wrap(
         self,
-        transform: t.Callable[[t.Callable[[BuildContext, NamedTypeInfo], Expr], BuildContext, TypeInfo], Expr],
+        transform: t.Callable[[t.Callable[[BuildContext, TypeInfo], Expr], BuildContext, TypeInfo], Expr],
     ) -> ClassTypeRefBuilder:
         return self.__class__(self._context, self.__info, partial(transform, self.__transform))
 
@@ -573,8 +573,12 @@ class ScopeASTBuilder(_BaseBuilder):
                 generators=self.__build_comprehensions(items),
             )
 
-        else:
+        elif self.__is_expression_collection(items):
             return ast.Set(elts=[self._context.resolver.resolve_expr(item) for item in items])
+
+        else:
+            # TODO: make assert_never work
+            raise RuntimeError(items)
 
     @t.overload
     def list_expr(self, items: t.Union[Comprehension, t.Sequence[Comprehension]], element: Expr) -> Expr: ...
@@ -596,8 +600,12 @@ class ScopeASTBuilder(_BaseBuilder):
                 generators=self.__build_comprehensions(items),
             )
 
-        else:
+        elif self.__is_expression_sequence(items):
             return ast.List(elts=[self._context.resolver.resolve_expr(item) for item in items])
+
+        else:
+            # TODO: make assert_never work
+            raise RuntimeError(items)
 
     @t.overload
     def dict_expr(
@@ -627,8 +635,8 @@ class ScopeASTBuilder(_BaseBuilder):
                 generators=self.__build_comprehensions(items),
             )
 
-        else:
-            keys = list[ast.expr]()
+        elif self.__is_expression_mapping(items):
+            keys = list[t.Union[ast.expr | None]]()
             values = list[ast.expr]()
 
             for k, v in items.items():
@@ -636,6 +644,10 @@ class ScopeASTBuilder(_BaseBuilder):
                 values.append(self._context.resolver.resolve_expr(v))
 
             return ast.Dict(keys=keys, values=values)
+
+        else:
+            # TODO: make assert_never work
+            raise RuntimeError(items)
 
     @_ast_expr_builder
     def not_op(self, expr: Expr) -> Expr:
@@ -848,6 +860,17 @@ class ScopeASTBuilder(_BaseBuilder):
     def __is_comprehensions(self, obj: object) -> t.TypeGuard[t.Union[Comprehension, t.Sequence[Comprehension]]]:
         return isinstance(obj, Comprehension) or (
             isinstance(obj, t.Sequence) and all(isinstance(item, Comprehension) for item in obj)
+        )
+
+    def __is_expression_collection(self, obj: object) -> t.TypeGuard[t.Collection[Expr]]:
+        return isinstance(obj, t.Collection) and all(isinstance(item, (ast.expr, ASTExpressionBuilder)) for item in obj)
+
+    def __is_expression_sequence(self, obj: object) -> t.TypeGuard[t.Sequence[Expr]]:
+        return isinstance(obj, t.Sequence) and all(isinstance(item, (ast.expr, ASTExpressionBuilder)) for item in obj)
+
+    def __is_expression_mapping(self, obj: object) -> t.TypeGuard[t.Mapping[Expr, Expr]]:
+        return isinstance(obj, t.Mapping) and all(
+            isinstance(item, (ast.expr, ASTExpressionBuilder)) for pair in obj.items() for item in pair
         )
 
     def __build_comprehensions(
@@ -1318,6 +1341,7 @@ class FuncTypeRefBuilder(ASTExpressionBuilder):
         self.__context = context
         self.__info = info
 
+    @override
     def build_expr(self) -> ast.expr:
         return self.__context.resolver.resolve_expr(self.__info)
 
