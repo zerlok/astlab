@@ -340,6 +340,12 @@ TYPES_CASES = pytest.mark.parametrize(
                 name="StubInt",
                 module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
             ),
+            marks=(
+                pytest.mark.skipif(
+                    condition="sys.version_info < (3, 11)",
+                    reason="can't get StubInt qualname in older python versions",
+                ),
+            ),
         ),
     ],
 )

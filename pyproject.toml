@@ -53,6 +53,7 @@ ignore = [
     "FIX", # TODO: consider enable it against new code on pull requests
     "COM812", # because ruff format suggests to skip it
     "ISC001", # because ruff format suggests to skip it
+    "RET503", # because we use mypy & ruff doesn't understand `assert_never`
     "RET505", # clashes with mypy exhaustiveness check
     "S101", # allow asserts for tests checks and mypy help
     # TODO: stop ignore this rule
@@ -62,6 +63,10 @@ ignore = [
     # TODO: stop ignore this rule
     "SIM117", # because AST builder uses with statement to build contextual scope statemetns
 ]
+
+[tool.ruff.lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = [

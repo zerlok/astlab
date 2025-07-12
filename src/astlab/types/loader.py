@@ -9,6 +9,7 @@ import importlib
 import sys
 import typing as t
 from contextlib import contextmanager
+from operator import getitem
 from pathlib import Path
 
 from astlab._typing import assert_never
@@ -81,11 +82,10 @@ class TypeLoader:
 
             # TODO: fix recursive type
             type_params = tuple(self.load(tp) for tp in info.type_params)
-            # TODO: fix invalid syntax in <=3.10
-            return type_[*type_params] if len(type_params) > 1 else type_[type_params[0]]  # type: ignore[index,misc]
+            return getitem(type_, type_params) if len(type_params) > 1 else getitem(type_, type_params[0])  # type: ignore[call-overload, misc]
 
         elif isinstance(info, LiteralTypeInfo):
-            return t.Literal[*info.values]
+            return getitem(t.Literal, info.values)
 
         else:
-            assert_never(info)  # noqa: RET503
+            assert_never(info)

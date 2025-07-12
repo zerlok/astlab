@@ -51,7 +51,7 @@ class TypeAnnotator:
             return f"typing.Literal[{vals}]"
 
         else:
-            assert_never(info)  # noqa: RET503
+            assert_never(info)
 
     def parse(self, qualname: str) -> TypeInfo:
         node = ast.parse(qualname)

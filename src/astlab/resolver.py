@@ -129,7 +129,7 @@ class DefaultASTResolver(ASTResolver):
             return info
 
         else:
-            assert_never(info)  # noqa: RET503
+            assert_never(info)
 
     def __chain_attr(self, expr: ast.expr, *tail: str) -> ast.expr:
         for attr in tail:
