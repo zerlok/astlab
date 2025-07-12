@@ -58,7 +58,7 @@ class TypeInspector:
 
                 if supertype is not None:
                     msg = "can't get module naming for NewType"
-                    raise TypeError(msg, type_.__name__, supertype)
+                    raise TypeError(msg, getattr(type_, "__name__", type_), supertype)
 
                 fullname = str(type_)
                 sq_bracket_idx = fullname.find("[")

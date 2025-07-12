@@ -35,7 +35,7 @@ from itertools import chain
 
 from typing_extensions import ParamSpec
 
-from astlab._typing import Self, override
+from astlab._typing import Self, TypeGuard, override
 from astlab.abc import (
     ASTExpressionBuilder,
     ASTLabError,
@@ -639,7 +639,7 @@ class ScopeASTBuilder(_BaseBuilder):
             )
 
         elif self.__is_expression_mapping(items):
-            keys = list[t.Union[ast.expr | None]]()
+            keys = list[t.Optional[ast.expr]]()
             values = list[ast.expr]()
 
             for k, v in items.items():
@@ -860,18 +860,18 @@ class ScopeASTBuilder(_BaseBuilder):
     def pass_stmt(self) -> ast.stmt:
         return ast.Pass()
 
-    def __is_comprehensions(self, obj: object) -> t.TypeGuard[t.Union[Comprehension, t.Sequence[Comprehension]]]:
+    def __is_comprehensions(self, obj: object) -> TypeGuard[t.Union[Comprehension, t.Sequence[Comprehension]]]:
         return isinstance(obj, Comprehension) or (
             isinstance(obj, t.Sequence) and all(isinstance(item, Comprehension) for item in obj)
         )
 
-    def __is_expression_collection(self, obj: object) -> t.TypeGuard[t.Collection[Expr]]:
+    def __is_expression_collection(self, obj: object) -> TypeGuard[t.Collection[Expr]]:
         return isinstance(obj, t.Collection) and all(isinstance(item, (ast.expr, ASTExpressionBuilder)) for item in obj)
 
-    def __is_expression_sequence(self, obj: object) -> t.TypeGuard[t.Sequence[Expr]]:
+    def __is_expression_sequence(self, obj: object) -> TypeGuard[t.Sequence[Expr]]:
         return isinstance(obj, t.Sequence) and all(isinstance(item, (ast.expr, ASTExpressionBuilder)) for item in obj)
 
-    def __is_expression_mapping(self, obj: object) -> t.TypeGuard[t.Mapping[Expr, Expr]]:
+    def __is_expression_mapping(self, obj: object) -> TypeGuard[t.Mapping[Expr, Expr]]:
         return isinstance(obj, t.Mapping) and all(
             isinstance(item, (ast.expr, ASTExpressionBuilder)) for pair in obj.items() for item in pair
         )
