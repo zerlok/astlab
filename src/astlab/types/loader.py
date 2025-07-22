@@ -62,7 +62,10 @@ class TypeLoader:
 
     @lru_cache_method()
     def load(self, info: TypeInfo) -> RuntimeType:
-        if isinstance(info, NamedTypeInfo):
+        if isinstance(info, ModuleInfo):
+            return self.__module.load(info)
+
+        elif isinstance(info, NamedTypeInfo):
             if info == none_type_info():
                 return None
 

@@ -32,7 +32,10 @@ class TypeAnnotator:
 
     @lru_cache_method()
     def annotate(self, info: TypeInfo) -> str:
-        if isinstance(info, NamedTypeInfo):
+        if isinstance(info, ModuleInfo):
+            return "builtins.module"
+
+        elif isinstance(info, NamedTypeInfo):
             if info == none_type_info():
                 return "None"
 

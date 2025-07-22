@@ -87,13 +87,21 @@ class DefaultASTResolver(ASTResolver):
 
     def __type_info_attr(self, info: TypeInfo, *tail: str) -> ast.expr:
         parts = self.__module.parts if self.__module is not None else ()
-        head, *middle = info.parts[len(parts) :] if info.module == self.__module else info.parts
+        head, *middle = (
+            (info.parts[len(parts) :] if info.module == self.__module else info.parts)
+            if not isinstance(info, ModuleInfo)
+            else info.parts
+        )
 
         origin = self.__chain_attr(ast.Name(id=head), *middle, *tail)
         args = (
-            [self.__type_info_attr(param) for param in info.type_params]
-            if isinstance(info, NamedTypeInfo)
-            else [ast.Constant(value=value) for value in info.values]
+            (
+                [self.__type_info_attr(param) for param in info.type_params]
+                if isinstance(info, NamedTypeInfo)
+                else [ast.Constant(value=value) for value in info.values]
+            )
+            if not isinstance(info, ModuleInfo)
+            else []
         )
 
         return (
@@ -106,7 +114,14 @@ class DefaultASTResolver(ASTResolver):
         )
 
     def __resolve_dependency(self, info: TypeInfo) -> TypeInfo:
-        if isinstance(info, NamedTypeInfo):
+        if isinstance(info, ModuleInfo):
+            if info == self.__module:
+                msg = "module cannot import itself"
+                raise RuntimeError(msg, info)
+
+            return info
+
+        elif isinstance(info, NamedTypeInfo):
             if info.module == self.__module:
                 ns = (
                     info.namespace[len(self.__namespace) :]

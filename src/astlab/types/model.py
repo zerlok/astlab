@@ -239,4 +239,4 @@ class LiteralTypeInfo:
         return ".".join(self.parts)
 
 
-TypeInfo: TypeAlias = t.Union[NamedTypeInfo, LiteralTypeInfo]
+TypeInfo: TypeAlias = t.Union[ModuleInfo, NamedTypeInfo, LiteralTypeInfo]
