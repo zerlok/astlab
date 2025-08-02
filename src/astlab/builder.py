@@ -720,6 +720,22 @@ class ScopeASTBuilder(_BaseBuilder):
             comparators=[self._normalize_expr(right)],
         )
 
+    @_ast_expr_builder
+    def compare_in_expr(self, left: Expr, right: Expr) -> Expr:
+        return ast.Compare(
+            left=self._normalize_expr(left),
+            ops=[ast.In()],
+            comparators=[self._normalize_expr(right)],
+        )
+
+    @_ast_expr_builder
+    def compare_not_in_expr(self, left: Expr, right: Expr) -> Expr:
+        return ast.Compare(
+            left=self._normalize_expr(left),
+            ops=[ast.NotIn()],
+            comparators=[self._normalize_expr(right)],
+        )
+
     def attr(self, head: t.Union[str, TypeRef], *tail: str) -> AttrASTBuilder:
         return AttrASTBuilder(self._context, head, *tail)
 
