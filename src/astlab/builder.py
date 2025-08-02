@@ -35,7 +35,7 @@ from itertools import chain
 
 from typing_extensions import ParamSpec
 
-from astlab._typing import Self, TypeGuard, override
+from astlab._typing import EllipsisType, Self, TypeGuard, override
 from astlab.abc import (
     ASTExpressionBuilder,
     ASTLabError,
@@ -59,9 +59,6 @@ from astlab.types import (
     predef,
 )
 from astlab.writer import render_module, write_module
-
-if t.TYPE_CHECKING:
-    from types import EllipsisType
 
 T_co = t.TypeVar("T_co", covariant=True)
 P = ParamSpec("P")
@@ -507,15 +504,23 @@ class ScopeASTBuilder(_BaseBuilder):
             else self._context.inspector.inspect(origin),
         )
 
-    @_ast_expr_builder
-    def const(self, value: t.Union[str, bytes, bool, complex, EllipsisType, None]) -> Expr:  # noqa: FBT001
-        return ast.Constant(value=value)
+    if sys.version_info < (3, 10):
+
+        @_ast_expr_builder
+        def const(self, value: t.Union[str, bytes, bool, complex, None]) -> Expr:  # noqa: FBT001
+            return ast.Constant(value=value)
+
+    else:
+
+        @_ast_expr_builder
+        def const(self, value: t.Union[str, bytes, bool, complex, EllipsisType, None]) -> Expr:  # noqa: FBT001
+            return ast.Constant(value=value)
 
     def none(self) -> Expr:
         return self.const(None)
 
     def ellipsis(self) -> Expr:
-        return self.const(...)
+        return ast.Constant(value=...)
 
     @_ast_expr_builder
     def compare_expr(self, left: Expr, tests: t.Sequence[tuple[ast.cmpop, Expr]]) -> Expr:
