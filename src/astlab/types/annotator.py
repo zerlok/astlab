@@ -72,23 +72,21 @@ class _ExprParser(ast.NodeVisitor):
         self.__parts = deque[str]()
         self.__info: t.Optional[TypeInfo] = None
 
-    # NOTE: `ruff` can't work with `override`
     @override
-    def visit_Constant(self, node: ast.Constant) -> None:  # noqa: N802
-        if node.value is None:  # type: ignore[misc]
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if node.value is None:
             self.__set_result(none_type_info())
 
-        elif node.value is Ellipsis:  # type: ignore[misc]
+        elif node.value is Ellipsis:
             self.__set_result(ellipsis_type_info())
 
-        elif isinstance(node.value, str):  # type: ignore[misc]
+        elif isinstance(node.value, str):
             # forward ref case
             info = _ExprParser(self.__loader).parse(ast.parse(node.value))
             self.__set_result(info)
 
-    # NOTE: `ruff` can't work with `override`
     @override
-    def visit_Name(self, node: ast.Name) -> None:  # noqa: N802
+    def visit_Name(self, node: ast.Name) -> None:
         self.__parts.appendleft(node.id)
         *parts, name = self.__parts
 
@@ -102,15 +100,13 @@ class _ExprParser(ast.NodeVisitor):
 
         self.__set_result(info)
 
-    # NOTE: `ruff` can't work with `override`
     @override
-    def visit_Attribute(self, node: ast.Attribute) -> None:  # noqa: N802
+    def visit_Attribute(self, node: ast.Attribute) -> None:
         self.__parts.appendleft(node.attr)
         self.visit(node.value)
 
-    # NOTE: `ruff` can't work with `override`
     @override
-    def visit_Subscript(self, node: ast.Subscript) -> None:  # noqa: N802
+    def visit_Subscript(self, node: ast.Subscript) -> None:
         self.visit(node.value)
 
         if isinstance(self.__info, NamedTypeInfo):
@@ -168,10 +164,9 @@ class _LiteralValueExtractor(ast.NodeVisitor):
     def __init__(self) -> None:
         self.__values = list[LiteralTypeValue]()
 
-    # NOTE: `ruff` can't work with `override`
     @override
-    def visit_Constant(self, node: ast.Constant) -> None:  # noqa: N802
-        if node.value is not None and not isinstance(node.value, (bool, int, bytes, str)):  # type: ignore[misc]
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if node.value is not None and not isinstance(node.value, (bool, int, bytes, str)):
             msg = "invalid literal value"
             raise ValueError(msg, ast.dump(node))
 

@@ -60,6 +60,9 @@ from astlab.types import (
 )
 from astlab.writer import render_module, write_module
 
+if t.TYPE_CHECKING:
+    from types import EllipsisType
+
 T_co = t.TypeVar("T_co", covariant=True)
 P = ParamSpec("P")
 
@@ -505,8 +508,7 @@ class ScopeASTBuilder(_BaseBuilder):
         )
 
     @_ast_expr_builder
-    def const(self, value: object) -> Expr:
-        assert not isinstance(value, ast.AST)
+    def const(self, value: t.Union[str, bytes, bool, complex, EllipsisType, None]) -> Expr:  # noqa: FBT001
         return ast.Constant(value=value)
 
     def none(self) -> Expr:
