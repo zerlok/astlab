@@ -219,11 +219,19 @@ def _ast_stmt_builder(
     return wrapper  # type: ignore[return-value]
 
 
+# noinspection PyTypeChecker
 class AttrASTBuilder(BaseASTExpressionBuilder):
-    def __init__(self, context: BuildContext, head: t.Union[str, TypeRef], *tail: str) -> None:
+    def __init__(
+        self,
+        context: BuildContext,
+        head: t.Union[str, TypeRef],
+        *tail: str,
+        is_awaited: bool = False,
+    ) -> None:
         super().__init__(context, self.__create_expr)
         self.__head = head
         self.__tail = tail
+        self.__is_awaited = is_awaited
 
     @cached_property
     def parts(self) -> t.Sequence[str]:
@@ -248,8 +256,12 @@ class AttrASTBuilder(BaseASTExpressionBuilder):
 
         return *reversed(parts), *self.__tail
 
+    def await_(self, *, is_awaited: bool = True) -> Self:
+        self.__is_awaited = is_awaited
+        return self
+
     def attr(self, *tail: str) -> Self:
-        return self.__class__(self._context, self, *tail)
+        return self.__class__(self._context, self, *tail, is_awaited=self.__is_awaited)
 
     def call(
         self,
@@ -261,11 +273,16 @@ class AttrASTBuilder(BaseASTExpressionBuilder):
     def assign(self, value: Expr) -> ast.stmt:
         return self._scope.assign_stmt(self, value)
 
-    def __create_expr(self) -> Expr:
-        return self._normalize_expr(
+    def __create_expr(self) -> ast.expr:
+        node: ast.expr = self._normalize_expr(
             ast.Name(id=self.__head) if isinstance(self.__head, str) else self.__head,
             *self.__tail,
         )
+
+        if self.__is_awaited:
+            node = ast.Await(value=node)
+
+        return node
 
 
 # noinspection PyTypeChecker
@@ -311,7 +328,7 @@ class CallASTBuilder(BaseASTExpressionBuilder):
     ) -> Self:
         return self.__class__(context=self._context, func=self, args=args, kwargs=kwargs)
 
-    def __create_expr(self) -> Expr:
+    def __create_expr(self) -> ast.expr:
         node: ast.expr = ast.Call(
             func=self._normalize_expr(self.__func),
             args=[self._normalize_expr(arg) for arg in self.__args],
@@ -521,6 +538,10 @@ class ScopeASTBuilder(_BaseBuilder):
 
     def ellipsis(self) -> Expr:
         return ast.Constant(value=...)
+
+    @_ast_expr_builder
+    def await_(self, expr: Expr) -> Expr:
+        return ast.Await(self._normalize_expr(expr))
 
     @_ast_expr_builder
     def compare_expr(self, left: Expr, tests: t.Sequence[tuple[ast.cmpop, Expr]]) -> Expr:
