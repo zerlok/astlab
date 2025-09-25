@@ -7,6 +7,7 @@ from _pytest.mark import ParameterSet
 
 from astlab.builder import Comprehension, ModuleASTBuilder, build_module, build_package
 from astlab.reader import parse_module
+from astlab.types import none_type_info
 
 _PARAMS: t.Final[list[ParameterSet]] = []
 
@@ -141,6 +142,28 @@ def build_optionals() -> ModuleASTBuilder:
         opt.field_def("my_optional_str", opt.type_ref(str).optional())
         opt.field_def("my_optional_list_of_int", opt.type_ref(int).list().optional())
         opt.field_def("my_list_of_optional_int", opt.type_ref(int).optional().list())
+
+        return mod
+
+
+@_to_module_param
+def build_unions() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    class MyOptions:
+        my_union_str_none: typing.Union[builtins.str, None]
+        my_union_int_str_none: typing.Union[builtins.int, builtins.str, None]
+        my_str_or_list_of_str: typing.Union[builtins.str, builtins.list[builtins.str], None]
+    """
+
+    with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
+        opt.field_def("my_union_str_none", opt.union_type(opt.type_ref(str), none_type_info()))
+        opt.field_def("my_union_int_str_none", opt.union_type(opt.type_ref(int), opt.type_ref(str), none_type_info()))
+        opt.field_def(
+            "my_str_or_list_of_str", opt.union_type(opt.type_ref(str), opt.type_ref(str).list(), none_type_info())
+        )
 
         return mod
 

@@ -8,6 +8,7 @@ __all__ = [
     "ClassTypeRefBuilder",
     "Comprehension",
     "ForStatementASTBuilder",
+    "FuncArgInfo",
     "FuncStatementASTBuilder",
     "IfStatementASTBuilder",
     "MethodScopeASTBuilder",
@@ -35,7 +36,7 @@ from itertools import chain
 
 from typing_extensions import ParamSpec
 
-from astlab._typing import EllipsisType, Self, TypeGuard, override
+from astlab._typing import EllipsisType, Self, TypeGuard, assert_never, override
 from astlab.abc import (
     ASTExpressionBuilder,
     ASTLabError,
@@ -126,6 +127,9 @@ class _BaseBuilder:
     def _normalize_expr(self, expr: TypeRef, *tail: str) -> ast.expr:
         return self._context.resolver.resolve_expr(expr, *tail)
 
+    def _normalize_annotation(self, expr: TypeRef) -> ast.expr:
+        return self._context.resolver.resolve_annotation(expr)
+
     def _normalize_body(self, body: t.Sequence[Stmt], docs: t.Optional[t.Sequence[str]] = None) -> list[ast.stmt]:
         return self._context.resolver.resolve_stmts(*body, docs=docs, pass_if_empty=True)
 
@@ -166,6 +170,10 @@ class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
     @override
     def build_expr(self) -> ast.expr:
         return self._normalize_expr(self.__factory())
+
+    @override
+    def build_annotation(self) -> ast.expr:
+        return self._normalize_annotation(self.__factory())
 
     def stmt(self, *, append: bool = True) -> ast.stmt:
         node = ast.Expr(value=self.build_expr())
@@ -493,6 +501,10 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
     def build_expr(self) -> ast.expr:
         return self._normalize_expr(self.__transform(self._context, self.__info))
 
+    @override
+    def build_annotation(self) -> ast.expr:
+        return self._normalize_annotation(self.__transform(self._context, self.__info))
+
     def __ident(self, context: BuildContext, info: TypeInfo) -> Expr:
         return context.resolver.resolve_expr(info)
 
@@ -775,25 +787,24 @@ class ScopeASTBuilder(_BaseBuilder):
     ) -> CallASTBuilder:
         return CallASTBuilder(self._context, func, args, kwargs)
 
-    @_ast_expr_builder
     def generic_type(self, generic: TypeRef, *args: TypeRef) -> Expr:
         if len(args) == 0:
-            return self._normalize_expr(generic)
+            return self._normalize_annotation(generic)
 
         if len(args) == 1:
             return ast.Subscript(
-                value=self._normalize_expr(generic),
-                slice=self._normalize_expr(args[0]),
+                value=self._normalize_annotation(generic),
+                slice=self._normalize_annotation(args[0]),
             )
 
         return ast.Subscript(
-            value=self._normalize_expr(generic),
-            slice=self._normalize_expr(self.tuple_expr(*args)),
+            value=self._normalize_annotation(generic),
+            slice=self._normalize_annotation(self.tuple_type(*args)),
         )
 
     def literal_type(self, *args: t.Union[str, Expr]) -> Expr:
         if not args:
-            return self._normalize_expr(predef().no_return)
+            return self._normalize_annotation(predef().no_return)
 
         return self.generic_type(
             predef().literal,
@@ -802,6 +813,18 @@ class ScopeASTBuilder(_BaseBuilder):
 
     def optional_type(self, of_type: TypeRef) -> Expr:
         return self.generic_type(predef().optional, of_type)
+
+    def union_type(self, *args: TypeRef) -> Expr:
+        if not args:
+            return self._normalize_annotation(predef().no_return)
+
+        return self.generic_type(predef().union, *args)
+
+    def tuple_type(self, *items: TypeRef, normalize: bool = False) -> Expr:
+        if normalize and len(items) == 1:
+            return self._normalize_annotation(items[0])
+
+        return ast.Tuple(elts=[self._normalize_annotation(item) for item in items])
 
     def collection_type(self, of_type: TypeRef) -> Expr:
         return self.generic_type(predef().collection, of_type)
@@ -837,7 +860,7 @@ class ScopeASTBuilder(_BaseBuilder):
     def field_def(self, name: str, annotation: TypeRef, default: t.Optional[Expr] = None) -> ast.stmt:
         return ast.AnnAssign(
             target=ast.Name(id=name),
-            annotation=self._normalize_expr(annotation),
+            annotation=self._normalize_annotation(annotation),
             value=self._normalize_expr(default) if default is not None else None,
             simple=1,
         )
@@ -1388,6 +1411,18 @@ class FuncTypeRefBuilder(ASTExpressionBuilder):
     def build_expr(self) -> ast.expr:
         return self.__context.resolver.resolve_expr(self.__info)
 
+    @override
+    def build_annotation(self) -> ast.expr:
+        return self.__context.resolver.resolve_annotation(self.__info)
+
+
+@dataclass(frozen=True)
+class FuncArgInfo:
+    name: str
+    kind: t.Literal["positional-only", "positional-or-keyword", "var-positional", "keyword-only", "var-keyword"]
+    annotation: t.Optional[TypeRef] = None
+    default: t.Optional[Expr] = None
+
 
 # noinspection PyTypeChecker
 class FuncStatementASTBuilder(
@@ -1400,9 +1435,7 @@ class FuncStatementASTBuilder(
         super().__init__(context)
         self.__info = NamedTypeInfo(name=name, module=self._context.module, namespace=self._context.namespace)
         self.__decorators = list[TypeRef]()
-        self.__args = list[tuple[str, t.Optional[TypeRef]]]()
-        self.__kwargs = dict[str, t.Optional[TypeRef]]()
-        self.__defaults = dict[str, Expr]()
+        self.__args = list[FuncArgInfo]()
         self.__returns: t.Optional[TypeRef] = None
         self.__is_async = False
         self.__is_abstract = False
@@ -1460,11 +1493,24 @@ class FuncStatementASTBuilder(
         annotation: t.Optional[TypeRef] = None,
         default: t.Optional[Expr] = None,
     ) -> Self:
-        self.__args.append((name, annotation))
+        return self.args(FuncArgInfo(name=name, kind="positional-or-keyword", annotation=annotation, default=default))
 
-        if default is not None:
-            self.__defaults[name] = default
+    def kwarg(
+        self,
+        name: str,
+        annotation: t.Optional[TypeRef] = None,
+        default: t.Optional[Expr] = None,
+    ) -> Self:
+        return self.args(FuncArgInfo(name=name, kind="keyword-only", annotation=annotation, default=default))
 
+    @t.overload
+    def args(self, *args: FuncArgInfo) -> Self: ...
+
+    @t.overload
+    def args(self, *args: t.Sequence[FuncArgInfo]) -> Self: ...
+
+    def args(self, *args: t.Union[FuncArgInfo, t.Sequence[FuncArgInfo]]) -> Self:
+        self.__args.extend(chain.from_iterable((part,) if isinstance(part, FuncArgInfo) else part for part in args))
         return self
 
     def returns(self, ret: t.Optional[TypeRef]) -> Self:
@@ -1534,25 +1580,44 @@ class FuncStatementASTBuilder(
         return [self._normalize_expr(dec) for dec in chain(head_decorators, self.__decorators, last_decorators)]
 
     def __build_args(self) -> ast.arguments:
-        return ast.arguments(
+        node = ast.arguments(
             posonlyargs=[],
-            args=[
-                ast.arg(
-                    arg=arg,
-                    annotation=self._normalize_expr(annotation) if annotation is not None else None,
-                )
-                for arg, annotation in self.__args
-            ],
-            defaults=[self._normalize_expr(self.__defaults[arg]) for arg, _ in self.__args if arg in self.__defaults],
-            kwonlyargs=[
-                ast.arg(
-                    arg=arg,
-                    annotation=self._normalize_expr(annotation) if annotation is not None else None,
-                )
-                for arg, annotation in self.__kwargs.items()
-            ],
-            kw_defaults=[self._normalize_expr(self.__defaults[key]) for key in self.__kwargs if key in self.__defaults],
+            args=[],
+            defaults=[],
+            vararg=None,
+            kwonlyargs=[],
+            kw_defaults=[],
+            kwarg=None,
         )
+
+        for info in self.__args:
+            arg = ast.arg(
+                arg=info.name,
+                annotation=self._normalize_annotation(info.annotation) if info.annotation is not None else None,
+            )
+
+            if info.kind == "positional-only":
+                node.posonlyargs.append(arg)
+
+            elif info.kind == "positional-or-keyword":
+                node.args.append(arg)
+                if info.default is not None:
+                    node.defaults.append(self._normalize_expr(info.default))
+
+            elif info.kind == "var-positional":
+                node.vararg = arg
+
+            elif info.kind == "keyword-only":
+                node.kwonlyargs.append(arg)
+                node.kw_defaults.append(self._normalize_expr(info.default) if info.default is not None else None)
+
+            elif info.kind == "var-keyword":
+                node.kwarg = arg
+
+            else:
+                assert_never(info.kind)
+
+        return node
 
     def __build_returns(self, scope: ScopeASTBuilder) -> t.Optional[ast.expr]:
         if self.__returns is None:

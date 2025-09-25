@@ -11,7 +11,15 @@ from itertools import chain
 
 from astlab._typing import assert_never, override
 from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefinitionBuilder, TypeRef
-from astlab.types import LiteralTypeInfo, ModuleInfo, NamedTypeInfo, TypeInfo, TypeInspector
+from astlab.types import (
+    LiteralTypeInfo,
+    ModuleInfo,
+    NamedTypeInfo,
+    TypeInfo,
+    TypeInspector,
+    ellipsis_type_info,
+    none_type_info,
+)
 
 
 class DefaultASTResolver(ASTResolver):
@@ -30,14 +38,32 @@ class DefaultASTResolver(ASTResolver):
             return self.__chain_attr(ref.build_expr(), *tail)
 
         elif isinstance(ref, (NamedTypeInfo, LiteralTypeInfo)):
-            return self.__type_info_expr(ref, *tail)
+            return self.__type_info_expr(ref, tail)
 
         elif isinstance(ref, TypeDefinitionBuilder):
-            return self.__type_info_expr(ref.info, *tail)
+            return self.__type_info_expr(ref.info, tail)
 
         else:
             info = self.__inspector.inspect(ref)
-            return self.__type_info_expr(info, *tail)
+            return self.__type_info_expr(info, tail)
+
+    @override
+    def resolve_annotation(self, ref: TypeRef) -> ast.expr:
+        if isinstance(ref, ast.expr):
+            return ref
+
+        elif isinstance(ref, ASTExpressionBuilder):
+            return ref.build_annotation()
+
+        elif isinstance(ref, (NamedTypeInfo, LiteralTypeInfo)):
+            return self.__type_info_expr(ref, is_annotation=True)
+
+        elif isinstance(ref, TypeDefinitionBuilder):
+            return self.__type_info_expr(ref.info, is_annotation=True)
+
+        else:
+            info = self.__inspector.inspect(ref)
+            return self.__type_info_expr(info, is_annotation=True)
 
     @override
     def resolve_stmts(
@@ -77,15 +103,21 @@ class DefaultASTResolver(ASTResolver):
         self.__namespace = namespace
         self.__dependencies = dependencies
 
-    def __type_info_expr(self, info: TypeInfo, *tail: str) -> ast.expr:
+    def __type_info_expr(self, info: TypeInfo, tail: t.Sequence[str] = (), *, is_annotation: bool = False) -> ast.expr:
         if isinstance(info, NamedTypeInfo) and info.type_vars:
             msg = "can't build expr for type with type vars"
             raise ValueError(msg, info)
 
         resolved_info = self.__resolve_dependency(info)
-        return self.__type_info_attr(resolved_info, *tail)
+        return self.__type_info_attr(resolved_info, tail, is_annotation=is_annotation)
 
-    def __type_info_attr(self, info: TypeInfo, *tail: str) -> ast.expr:
+    def __type_info_attr(self, info: TypeInfo, tail: t.Sequence[str] = (), *, is_annotation: bool = False) -> ast.expr:
+        if is_annotation and info == none_type_info():
+            return ast.Constant(value=None)
+
+        if is_annotation and info == ellipsis_type_info():
+            return ast.Constant(value=...)
+
         parts = self.__module.parts if self.__module is not None else ()
         head, *middle = (
             (info.parts[len(parts) :] if info.module == self.__module else info.parts)
@@ -96,7 +128,7 @@ class DefaultASTResolver(ASTResolver):
         origin = self.__chain_attr(ast.Name(id=head), *middle, *tail)
         args = (
             (
-                [self.__type_info_attr(param) for param in info.type_params]
+                [self.__type_info_attr(param, is_annotation=is_annotation) for param in info.type_params]
                 if isinstance(info, NamedTypeInfo)
                 else [ast.Constant(value=value) for value in info.values]
             )
