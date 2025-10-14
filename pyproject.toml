@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "astlab"
-version = "0.4.3"
+version = "0.4.4"
 description = "provides an intuitive API for building and manipulating Abstract Syntax Trees (ASTs) to generate Python code."
 authors = ["zerlok <danil.troshnev@gmail.com>"]
 readme = "README.md"
@@ -27,7 +27,7 @@ python = "^3.9"
 [tool.poetry.group.dev.dependencies]
 mypy = "^1.13.0"
 pytest = "^8.3.3"
-pytest-cov = "^6.0.0"
+pytest-cov = ">=6,<8"
 ruff = ">=0.7.4,<1"
 
 

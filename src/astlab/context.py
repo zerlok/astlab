@@ -69,14 +69,14 @@ class BuildContext:
         scope = Scope(name, body)
         self.__scopes.append(scope)
 
-        self.__notify_scope()
+        self.__reset_scope()
 
         return scope
 
     def leave_scope(self) -> Scope:
         scope = self.__scopes.pop()
 
-        self.__notify_scope()
+        self.__reset_scope()
 
         return scope
 
@@ -118,7 +118,7 @@ class BuildContext:
     def resolver(self) -> ASTResolver:
         return self.__resolver
 
-    def __notify_scope(self) -> None:
+    def __reset_scope(self) -> None:
         self.__resolver.set_current_scope(
             module=self.__module,
             namespace=self.namespace,

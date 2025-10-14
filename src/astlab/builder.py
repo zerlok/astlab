@@ -269,7 +269,7 @@ class AttrASTBuilder(BaseASTExpressionBuilder):
         return self
 
     def attr(self, *tail: str) -> Self:
-        return self.__class__(self._context, self, *tail, is_awaited=self.__is_awaited)
+        return self.__class__(self._context, self, *tail)
 
     def call(
         self,
@@ -277,6 +277,17 @@ class AttrASTBuilder(BaseASTExpressionBuilder):
         kwargs: t.Optional[t.Mapping[str, Expr]] = None,
     ) -> CallASTBuilder:
         return CallASTBuilder(context=self._context, func=self, args=args, kwargs=kwargs)
+
+    def index(self, index: Expr) -> SliceASTBuilder:
+        return SliceASTBuilder(context=self._context, value=self, index=index)
+
+    def slice(
+        self,
+        lower: t.Optional[Expr] = None,
+        upper: t.Optional[Expr] = None,
+        step: t.Optional[Expr] = None,
+    ) -> SliceASTBuilder:
+        return SliceASTBuilder(context=self._context, value=self, index=Slice(lower, upper, step))
 
     def assign(self, value: Expr) -> ast.stmt:
         return self._scope.assign_stmt(self, value)
@@ -336,6 +347,17 @@ class CallASTBuilder(BaseASTExpressionBuilder):
     ) -> Self:
         return self.__class__(context=self._context, func=self, args=args, kwargs=kwargs)
 
+    def index(self, index: Expr) -> SliceASTBuilder:
+        return SliceASTBuilder(context=self._context, value=self, index=index)
+
+    def slice(
+        self,
+        lower: t.Optional[Expr] = None,
+        upper: t.Optional[Expr] = None,
+        step: t.Optional[Expr] = None,
+    ) -> SliceASTBuilder:
+        return SliceASTBuilder(context=self._context, value=self, index=Slice(lower, upper, step))
+
     def __create_expr(self) -> ast.expr:
         node: ast.expr = ast.Call(
             func=self._normalize_expr(self.__func),
@@ -343,6 +365,74 @@ class CallASTBuilder(BaseASTExpressionBuilder):
             keywords=[ast.keyword(arg=key, value=self._normalize_expr(kwarg)) for key, kwarg in self.__kwargs.items()],
             lineno=0,
         )
+
+        if self.__is_awaited:
+            node = ast.Await(value=node)
+
+        return node
+
+
+@dataclass(frozen=True)
+class Slice:
+    lower: t.Optional[Expr] = None
+    upper: t.Optional[Expr] = None
+    step: t.Optional[Expr] = None
+
+
+# noinspection PyTypeChecker
+class SliceASTBuilder(BaseASTExpressionBuilder):
+    def __init__(
+        self,
+        context: BuildContext,
+        value: TypeRef,
+        index: t.Optional[t.Union[Expr, Slice]] = None,
+        *,
+        is_awaited: bool = False,
+    ) -> None:
+        super().__init__(context, self.__create_expr)
+        self.__value = value
+        self.__index = index
+        self.__is_awaited = is_awaited
+
+    def await_(self, *, is_awaited: bool = True) -> Self:
+        self.__is_awaited = is_awaited
+        return self
+
+    def attr(self, *tail: str) -> AttrASTBuilder:
+        return AttrASTBuilder(self._context, self, *tail, is_awaited=self.__is_awaited)
+
+    def call(
+        self,
+        args: t.Optional[t.Sequence[Expr]] = None,
+        kwargs: t.Optional[t.Mapping[str, Expr]] = None,
+    ) -> CallASTBuilder:
+        return CallASTBuilder(context=self._context, func=self, args=args, kwargs=kwargs)
+
+    def index(self, index: Expr) -> Self:
+        return self.__class__(self._context, self, index)
+
+    def slice(
+        self,
+        lower: t.Optional[Expr] = None,
+        upper: t.Optional[Expr] = None,
+        step: t.Optional[Expr] = None,
+    ) -> Self:
+        return self.__class__(self._context, self, Slice(lower, upper, step))
+
+    def __create_expr(self) -> ast.expr:
+        node = self._normalize_expr(self.__value)
+
+        if self.__index is not None:
+            node = ast.Subscript(
+                value=node,
+                slice=ast.Slice(
+                    lower=self._normalize_expr(self.__index.lower) if self.__index.lower is not None else None,
+                    upper=self._normalize_expr(self.__index.upper) if self.__index.upper is not None else None,
+                    step=self._normalize_expr(self.__index.step) if self.__index.step is not None else None,
+                )
+                if isinstance(self.__index, Slice)
+                else self._normalize_expr(self.__index),
+            )
 
         if self.__is_awaited:
             node = ast.Await(value=node)
@@ -787,19 +877,30 @@ class ScopeASTBuilder(_BaseBuilder):
     ) -> CallASTBuilder:
         return CallASTBuilder(self._context, func, args, kwargs)
 
+    @_ast_expr_builder
+    def subscript(self, value: TypeRef, slice_: Expr) -> Expr:
+        return ast.Subscript(value=self._normalize_expr(value), slice=self._normalize_expr(slice_))
+
+    @_ast_expr_builder
+    def slice(
+        self,
+        lower: t.Optional[Expr] = None,
+        upper: t.Optional[Expr] = None,
+        step: t.Optional[Expr] = None,
+    ) -> Expr:
+        return ast.Slice(
+            lower=self._normalize_expr(lower) if lower is not None else None,
+            upper=self._normalize_expr(upper) if upper is not None else None,
+            step=self._normalize_expr(step) if step is not None else None,
+        )
+
     def generic_type(self, generic: TypeRef, *args: TypeRef) -> Expr:
         if len(args) == 0:
             return self._normalize_annotation(generic)
 
-        if len(args) == 1:
-            return ast.Subscript(
-                value=self._normalize_annotation(generic),
-                slice=self._normalize_annotation(args[0]),
-            )
-
         return ast.Subscript(
             value=self._normalize_annotation(generic),
-            slice=self._normalize_annotation(self.tuple_type(*args)),
+            slice=self._normalize_annotation(self.tuple_type(*args, normalize=True)),
         )
 
     def literal_type(self, *args: t.Union[str, Expr]) -> Expr:

@@ -29,7 +29,7 @@ def iter_package_modules(path: Path) -> t.Iterable[Path]:
 
 def import_module_path(path: Path) -> ModuleType:
     # Find the shortest relative path to module.
-    relpath, src = min(
+    relpath, _ = min(
         ((path.relative_to(pypath), Path(pypath)) for pypath in sys.path if path.is_relative_to(pypath)),
         key=_get_rel_path_parts_count,
     )

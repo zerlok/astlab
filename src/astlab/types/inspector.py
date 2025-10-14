@@ -30,14 +30,15 @@ class TypeInspector:
 
             return LiteralTypeInfo(values=args or ())
 
-        module, namespace, name = self.__get_module_naming(type_)
+        origin, type_params = self.__unpack(type_)
+        module, namespace, name = self.__get_module_naming(origin)
 
         return NamedTypeInfo(
             name=name,
             module=module,
             namespace=tuple(namespace),
             # TODO: fix recursive type
-            type_params=tuple(self.inspect(param) for param in self.__get_type_params(type_)),
+            type_params=tuple(self.inspect(type_param) for type_param in type_params),
         )
 
     if sys.version_info >= (3, 11):
@@ -81,12 +82,12 @@ class TypeInspector:
 
             return module, namespace, name
 
-    def __get_type_params(self, type_: RuntimeType) -> t.Sequence[RuntimeType]:
+    def __unpack(self, type_: RuntimeType) -> tuple[RuntimeType, t.Sequence[RuntimeType]]:
         origin: t.Optional[RuntimeType] = t.get_origin(type_)
         args: t.Optional[t.Sequence[RuntimeType]] = t.get_args(type_)
 
         # patch Union[T, None] => Optional[T]
         if origin is t.Union and args is not None and len(args) == 2 and args[1] is type(None):  # noqa: PLR2004
-            return args[:1]
+            return t.Optional, args[:1]
 
-        return args or ()
+        return type_, args or ()

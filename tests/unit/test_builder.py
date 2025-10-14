@@ -254,3 +254,28 @@ def build_try_except_else() -> ModuleASTBuilder:
                 fin_scope.stmt(fin_scope.attr("print").call().arg(fin_scope.const("finally")))
 
         return mod
+
+
+@_to_module_param
+def build_index_slice() -> ModuleASTBuilder:
+    """
+    list[str]
+    x[0][1][2]
+    y[1:2:3]
+    z[0:2][1:3][2:5]
+    arr[:, :, 0]
+    """
+
+    with build_module("slice") as mod:
+        mod.stmt(mod.attr("list").index(mod.attr("str")))
+        mod.stmt(mod.attr("x").index(mod.const(0)).index(mod.const(1)).index(mod.const(2)))
+        mod.stmt(mod.attr("y").slice(mod.const(1), mod.const(2), mod.const(3)))
+        mod.stmt(
+            mod.attr("z")
+            .slice(mod.const(0), mod.const(2))
+            .slice(mod.const(1), mod.const(3))
+            .slice(mod.const(2), mod.const(5))
+        )
+        mod.stmt(mod.attr("arr").index(mod.tuple_expr(mod.slice(), mod.slice(), mod.const(0))))
+
+        return mod
