@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "astlab"
-version = "0.4.4"
+version = "0.4.5"
 description = "provides an intuitive API for building and manipulating Abstract Syntax Trees (ASTs) to generate Python code."
 authors = ["zerlok <danil.troshnev@gmail.com>"]
 readme = "README.md"
@@ -68,7 +68,15 @@ ignore = [
 # Preserve types, even if a file imports `from __future__ import annotations`.
 keep-runtime-typing = true
 
+[tool.ruff.per-file-target-version]
+"tests/stub/types.py" = "py312"
+
 [tool.ruff.lint.per-file-ignores]
+"tests/stub/types.py" = [
+    "UP036", # ignore minimum version check
+    "UP046", # allow typing.Generic
+    "UP040", # allow typing_extensions.TypeAlias
+]
 "tests/**" = [
     "PLR0913", # test functions can use a lots of arguments and fixtures
     "ARG002", # test functions can use fixtures with side effects
