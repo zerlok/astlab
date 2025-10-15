@@ -1,7 +1,7 @@
-import sys
 import typing as t
 from dataclasses import dataclass
-from typing import TypeAlias
+
+from typing_extensions import TypeAlias
 
 from astlab._typing import override
 
@@ -38,8 +38,5 @@ StubInt = t.NewType("StubInt", int)
 
 StubUnionAlias: TypeAlias = t.Union[StubFoo, StubBar[StubInt], StubX]
 
-if sys.version_info >= (3, 12):
-    type StubNumber = int | float
-
-else:
-    StubNumber = ...
+# TODO: enable after python 3.9, 3.10, 3.11 version support stop drop.
+#   type StubNumber = int | float  # noqa: ERA001

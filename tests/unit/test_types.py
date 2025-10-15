@@ -19,7 +19,7 @@ from astlab.types.model import (
     builtins_module_info,
     none_type_info,
 )
-from tests.stub.types import StubBar, StubCM, StubFoo, StubInt, StubNode, StubNumber, StubUnionAlias, StubX
+from tests.stub.types import StubBar, StubCM, StubFoo, StubInt, StubNode, StubUnionAlias, StubX
 
 
 class TestPackageInfo:
@@ -411,20 +411,6 @@ TYPES_CASES = pytest.mark.parametrize(
                 pytest.mark.skipif(
                     condition="sys.version_info < (3, 11)",
                     reason="can't get StubInt qualname in python versions < 3.11",
-                ),
-            ),
-        ),
-        pytest.param(
-            StubNumber,
-            "tests.stub.types.StubNumber",
-            NamedTypeInfo(
-                name="StubNumber",
-                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
-            ),
-            marks=(
-                pytest.mark.skipif(
-                    condition="sys.version_info < (3, 12)",
-                    reason="`type XXX = YYY` is not supported in python versions < 3.12",
                 ),
             ),
         ),

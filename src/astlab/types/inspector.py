@@ -37,7 +37,6 @@ class TypeInspector:
             name=name,
             module=module,
             namespace=tuple(namespace),
-            # TODO: fix recursive type
             type_params=tuple(self.inspect(type_param) for type_param in type_params),
         )
 
