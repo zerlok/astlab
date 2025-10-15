@@ -8,7 +8,7 @@ import pytest
 from astlab import abc as astlab_abc
 from astlab.types.annotator import TypeAnnotator
 from astlab.types.inspector import TypeInspector
-from astlab.types.loader import TypeLoader
+from astlab.types.loader import TypeLoader, TypeLoaderError
 from astlab.types.model import (
     LiteralTypeInfo,
     ModuleInfo,
@@ -473,11 +473,11 @@ class TestTypeLoader:
         [
             pytest.param(
                 NamedTypeInfo("NonExistingType", builtins_module_info()),
-                AttributeError,
+                TypeLoaderError,
             ),
             pytest.param(
                 NamedTypeInfo("SomeType", ModuleInfo("non_existing_module")),
-                ModuleNotFoundError,
+                TypeLoaderError,
             ),
         ],
     )

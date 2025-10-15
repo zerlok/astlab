@@ -3,6 +3,7 @@ from __future__ import annotations
 __all__ = [
     "ModuleLoader",
     "TypeLoader",
+    "TypeLoaderError",
 ]
 
 import importlib
@@ -54,6 +55,10 @@ class ModuleLoader:
         importlib.invalidate_caches()
 
 
+class TypeLoaderError(Exception):
+    pass
+
+
 class TypeLoader:
     """Loads runtime type from provided info."""
 
@@ -72,18 +77,28 @@ class TypeLoader:
             elif info == ellipsis_type_info():
                 return Ellipsis
 
-            value: object = self.__module.load(info.module)
+            try:
+                value: object = self.__module.load(info.module)
 
-            for name in info.namespace:
-                value = getattr(value, name)
+            except ImportError as err:
+                msg = "can't load module"
+                raise TypeLoaderError(msg, info) from err
 
-            # NOTE: need to check that we loaded a type.
-            type_: object = getattr(value, info.name)
+            try:
+                for name in info.namespace:
+                    value = getattr(value, name)
+
+                # NOTE: need to check that we loaded a type.
+                type_: object = getattr(value, info.name)
+
+            except AttributeError as err:
+                msg = "can't module has no attribute"
+                raise TypeLoaderError(msg, info) from err
 
             if not info.type_params:
                 return type_
 
-            # TODO: fix recursive type
+            # TODO: fix recursive type load
             type_params = tuple(self.load(tp) for tp in info.type_params)
             return getitem(type_, type_params) if len(type_params) > 1 else getitem(type_, type_params[0])  # type: ignore[call-overload, misc]
 
