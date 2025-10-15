@@ -523,7 +523,7 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
             context: BuildContext,
             info: TypeInfo,
         ) -> Expr:
-            return self._scope.generic_type(dict, inner(context, info), value)
+            return self._scope.dict_type(inner(context, info), value)
 
         return self.__wrap(transform)
 
@@ -543,7 +543,7 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
             context: BuildContext,
             info: TypeInfo,
         ) -> Expr:
-            return self._scope.generic_type(dict, key, inner(context, info))
+            return self._scope.dict_type(key, inner(context, info))
 
         return self.__wrap(transform)
 
@@ -577,6 +577,16 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
 
         return self.__wrap(transform)
 
+    def type_params(self, *params: TypeRef) -> ClassTypeRefBuilder:
+        def transform(
+            inner: t.Callable[[BuildContext, TypeInfo], Expr],
+            context: BuildContext,
+            info: TypeInfo,
+        ) -> Expr:
+            return self._scope.subscript(inner(context, info), self._scope.tuple_type(*params, normalize=True))
+
+        return self.__wrap(transform)
+
     def attr(self, *tail: str) -> AttrASTBuilder:
         return AttrASTBuilder(self._context, self, *tail)
 
@@ -605,6 +615,125 @@ class ClassTypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
         return self.__class__(self._context, self.__info, partial(transform, self.__transform))
 
 
+class AnnotationASTBuilder(_BaseBuilder):
+    def type_ref(self, origin: t.Union[TypeInfo, RuntimeType]) -> ClassTypeRefBuilder:
+        return ClassTypeRefBuilder(
+            context=self._context,
+            info=origin
+            if isinstance(origin, (NamedTypeInfo, LiteralTypeInfo))
+            else self._context.inspector.inspect(origin),
+        )
+
+    if sys.version_info >= (3, 10):
+
+        @_ast_expr_builder
+        def const(self, value: t.Union[str, bytes, bool, complex, EllipsisType, None]) -> Expr:  # noqa: FBT001
+            return ast.Constant(value=value)
+
+    else:
+
+        @_ast_expr_builder
+        def const(self, value: t.Union[str, bytes, bool, complex, None]) -> Expr:  # noqa: FBT001
+            return ast.Constant(value=value)
+
+    def none(self) -> Expr:
+        return self.const(None)
+
+    def ellipsis(self) -> Expr:
+        return ast.Constant(value=...)
+
+    def generic_type(self, generic: TypeRef, *params: TypeRef) -> Expr:
+        if len(params) == 0:
+            return self._normalize_annotation(generic)
+
+        return ast.Subscript(
+            value=self._normalize_annotation(generic),
+            slice=self._normalize_annotation(self.tuple_type(*params, normalize=True)),
+        )
+
+    def literal_type(self, *values: t.Union[str, Expr]) -> Expr:
+        if not values:
+            return self._normalize_annotation(predef().no_return)
+
+        return self.generic_type(
+            predef().literal,
+            *(self.const(val) if isinstance(val, str) else val for val in values),
+        )
+
+    def optional_type(self, of_type: TypeRef) -> Expr:
+        return self.generic_type(predef().optional, of_type)
+
+    def union_type(self, *params: TypeRef) -> Expr:
+        if not params:
+            return self._normalize_annotation(predef().no_return)
+
+        return self.generic_type(predef().union, *params)
+
+    def tuple_type(self, *params: TypeRef, normalize: bool = False) -> Expr:
+        if normalize and len(params) == 1:
+            return self._normalize_annotation(params[0])
+
+        return ast.Tuple(elts=[self._normalize_annotation(item) for item in params])
+
+    def collection_type(self, of_type: TypeRef) -> Expr:
+        return self.generic_type(predef().collection, of_type)
+
+    def sequence_type(self, of_type: TypeRef, *, mutable: bool = False) -> Expr:
+        return self.generic_type(predef().mutable_sequence if mutable else predef().sequence, of_type)
+
+    def list_type(self, of_type: TypeRef) -> Expr:
+        return self.generic_type(predef().list, of_type)
+
+    def mapping_type(self, key_type: TypeRef, value_type: TypeRef, *, mutable: bool = False) -> Expr:
+        return self.generic_type(predef().mutable_mapping if mutable else predef().mapping, key_type, value_type)
+
+    def dict_type(self, key_type: TypeRef, value_type: TypeRef) -> Expr:
+        return self.generic_type(predef().dict, key_type, value_type)
+
+    def iterator_type(self, of_type: TypeRef, *, is_async: bool = False) -> Expr:
+        return self.generic_type(predef().async_iterator if is_async else predef().iterator, of_type)
+
+    def iterable_type(self, of_type: TypeRef, *, is_async: bool = False) -> Expr:
+        return self.generic_type(predef().async_iterable if is_async else predef().iterable, of_type)
+
+    def context_manager_type(self, of_type: TypeRef, *, is_async: bool = False) -> Expr:
+        return self.generic_type(
+            predef().async_context_manager if is_async else predef().context_manager,
+            of_type,
+        )
+
+    def _on_expression(self, expr: Expr) -> None:
+        pass
+
+
+class TypeVarRefBuilder(_BaseBuilder, ASTExpressionBuilder):
+    def __init__(
+        self,
+        context: BuildContext,
+        name: str,
+        mode: t.Literal["invariant", "covariant", "contravariant"] = "invariant",
+        lower: t.Optional[TypeRef] = None,
+    ) -> None:
+        super().__init__(context)
+        self.__name = name
+        self.__mode = mode
+        self.__lower = lower
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        pass
+
+    @override
+    def build_expr(self) -> ast.expr:
+        return ast.Name(id=self.__name)
+
+    @override
+    def build_annotation(self) -> ast.expr:
+        return ast.Name(id=self.__name)
+
+
 @dataclass(frozen=True)
 class Comprehension:
     target: Expr
@@ -614,33 +743,7 @@ class Comprehension:
 
 
 # noinspection PyTypeChecker
-class ScopeASTBuilder(_BaseBuilder):
-    def type_ref(self, origin: t.Union[TypeInfo, RuntimeType]) -> ClassTypeRefBuilder:
-        return ClassTypeRefBuilder(
-            context=self._context,
-            info=origin
-            if isinstance(origin, (NamedTypeInfo, LiteralTypeInfo))
-            else self._context.inspector.inspect(origin),
-        )
-
-    if sys.version_info < (3, 10):
-
-        @_ast_expr_builder
-        def const(self, value: t.Union[str, bytes, bool, complex, None]) -> Expr:  # noqa: FBT001
-            return ast.Constant(value=value)
-
-    else:
-
-        @_ast_expr_builder
-        def const(self, value: t.Union[str, bytes, bool, complex, EllipsisType, None]) -> Expr:  # noqa: FBT001
-            return ast.Constant(value=value)
-
-    def none(self) -> Expr:
-        return self.const(None)
-
-    def ellipsis(self) -> Expr:
-        return ast.Constant(value=...)
-
+class ScopeASTBuilder(AnnotationASTBuilder):
     @_ast_expr_builder
     def await_(self, expr: Expr) -> Expr:
         return ast.Await(self._normalize_expr(expr))
@@ -894,60 +997,6 @@ class ScopeASTBuilder(_BaseBuilder):
             step=self._normalize_expr(step) if step is not None else None,
         )
 
-    def generic_type(self, generic: TypeRef, *args: TypeRef) -> Expr:
-        if len(args) == 0:
-            return self._normalize_annotation(generic)
-
-        return ast.Subscript(
-            value=self._normalize_annotation(generic),
-            slice=self._normalize_annotation(self.tuple_type(*args, normalize=True)),
-        )
-
-    def literal_type(self, *args: t.Union[str, Expr]) -> Expr:
-        if not args:
-            return self._normalize_annotation(predef().no_return)
-
-        return self.generic_type(
-            predef().literal,
-            *(self.const(arg) if isinstance(arg, str) else arg for arg in args),
-        )
-
-    def optional_type(self, of_type: TypeRef) -> Expr:
-        return self.generic_type(predef().optional, of_type)
-
-    def union_type(self, *args: TypeRef) -> Expr:
-        if not args:
-            return self._normalize_annotation(predef().no_return)
-
-        return self.generic_type(predef().union, *args)
-
-    def tuple_type(self, *items: TypeRef, normalize: bool = False) -> Expr:
-        if normalize and len(items) == 1:
-            return self._normalize_annotation(items[0])
-
-        return ast.Tuple(elts=[self._normalize_annotation(item) for item in items])
-
-    def collection_type(self, of_type: TypeRef) -> Expr:
-        return self.generic_type(predef().collection, of_type)
-
-    def sequence_type(self, of_type: TypeRef, *, mutable: bool = False) -> Expr:
-        return self.generic_type(predef().mutable_sequence if mutable else predef().sequence, of_type)
-
-    def mapping_type(self, key_type: TypeRef, value_type: TypeRef, *, mutable: bool = False) -> Expr:
-        return self.generic_type(predef().mutable_mapping if mutable else predef().mapping, key_type, value_type)
-
-    def iterator_type(self, of_type: TypeRef, *, is_async: bool = False) -> Expr:
-        return self.generic_type(predef().async_iterator if is_async else predef().iterator, of_type)
-
-    def iterable_type(self, of_type: TypeRef, *, is_async: bool = False) -> Expr:
-        return self.generic_type(predef().async_iterable if is_async else predef().iterable, of_type)
-
-    def context_manager_type(self, of_type: TypeRef, *, is_async: bool = False) -> Expr:
-        return self.generic_type(
-            predef().async_context_manager if is_async else predef().context_manager,
-            of_type,
-        )
-
     def stmt(self, *stmts: t.Optional[Stmt]) -> None:
         self._context.extend_body(self._context.resolver.resolve_stmts(*stmts))
 
@@ -965,6 +1014,9 @@ class ScopeASTBuilder(_BaseBuilder):
             value=self._normalize_expr(default) if default is not None else None,
             simple=1,
         )
+
+    def type_alias(self, name: str) -> TypeAliasStatementASTBuilder:
+        return TypeAliasStatementASTBuilder(self._context, name)
 
     @_ast_stmt_builder
     def assign_stmt(self, target: t.Union[str, Expr], value: Expr) -> ast.stmt:
@@ -1057,6 +1109,77 @@ class ScopeASTBuilder(_BaseBuilder):
             )
             for compr in ([comprehensions] if isinstance(comprehensions, Comprehension) else comprehensions)
         ]
+
+
+class TypeAliasStatementASTBuilder(AnnotationASTBuilder, ASTStatementBuilder, TypeDefinitionBuilder):
+    def __init__(self, context: BuildContext, name: str, annotation: t.Optional[TypeRef] = None) -> None:
+        super().__init__(context)
+        self.__info = NamedTypeInfo(name=name, module=self._context.module, namespace=self._context.namespace)
+        self.__annotation: t.Optional[TypeRef] = None
+        self.__type_vars = list[TypeVar]()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, exc_traceback: object) -> None:
+        pass
+
+    @override
+    @property
+    def info(self) -> TypeInfo:
+        return self.__info
+
+    @override
+    def ref(self) -> ClassTypeRefBuilder:
+        return ClassTypeRefBuilder(self._context, self.__info)
+
+    def assign(self, annotation: TypeRef) -> None:
+        self.__annotation = annotation
+        self._context.extend_body(self.build_stmt())
+
+    def type_var(self, name: str) -> TypeVarRefBuilder:
+        type_var = TypeVarRefBuilder(self._context, name)
+        self.__type_vars.append(TypeVar(name=name))
+        return type_var
+
+    def type_params(self, *params: TypeRef) -> Expr:
+        return self.ref().type_params(*params)
+
+    # NOTE: workaround for passing mypy typings in CI for python 3.12
+    if sys.version_info >= (3, 12):
+
+        @override
+        def build_stmt(self) -> t.Sequence[ast.stmt]:
+            if self.__annotation is None:
+                msg = "type alias is not set"
+                raise ValueError(msg, self)
+
+            return [
+                ast.TypeAlias(
+                    name=ast.Name(id=self.__info.name),
+                    value=self._normalize_annotation(self.__annotation),
+                    type_params=[
+                        ast.TypeVar(
+                            name=tv.name,
+                            bound=self._normalize_annotation(tv.bound) if tv.bound is not None else None,
+                        )
+                        for tv in self.__type_vars
+                    ],
+                )
+            ]
+
+    else:
+
+        def build_stmt(self, name: str, annotation: TypeRef) -> t.Sequence[ast.stmt]:
+            return [
+                ast.AnnAssign(
+                    target=ast.Name(id=name),
+                    # TODO: add typing.TypeAlias
+                    annotation=self._normalize_annotation(...),
+                    value=self._normalize_annotation(annotation),
+                    simple=1,
+                )
+            ]
 
 
 class _NestedBlockASTBuilder(_BaseBuilder, ASTStatementBuilder, metaclass=abc.ABCMeta):
@@ -1304,9 +1427,15 @@ class TypeVar:
 
 
 class ClassScopeASTBuilder(ScopeASTBuilder, TypeDefinitionBuilder):
-    def __init__(self, context: BuildContext, header: ClassStatementASTBuilder) -> None:
+    def __init__(
+        self,
+        context: BuildContext,
+        header: ClassStatementASTBuilder,
+        type_vars: t.MutableSequence[TypeVar],
+    ) -> None:
         super().__init__(context)
         self.__header = header
+        self.__type_vars = type_vars
 
     @override
     @property
@@ -1316,6 +1445,11 @@ class ClassScopeASTBuilder(ScopeASTBuilder, TypeDefinitionBuilder):
     @override
     def ref(self) -> ClassTypeRefBuilder:
         return self.__header.ref()
+
+    def type_var(self, name: str) -> TypeVarRefBuilder:
+        type_var = TypeVarRefBuilder(self._context, name)
+        self.__type_vars.append(TypeVar(name=name))
+        return type_var
 
     def method_def(self, name: str) -> MethodStatementASTBuilder:
         return MethodStatementASTBuilder(self._context, name)
@@ -1399,7 +1533,7 @@ class ClassStatementASTBuilder(
     @override
     def __enter__(self) -> ClassScopeASTBuilder:
         self._context.enter_scope(self.__info.name, self.__body)
-        return ClassScopeASTBuilder(self._context, self)
+        return ClassScopeASTBuilder(self._context, self, self.__type_vars)
 
     @override
     def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
@@ -1635,8 +1769,6 @@ class FuncStatementASTBuilder(
     def build_stmt(self) -> t.Sequence[ast.stmt]:
         node: ast.stmt
 
-        scope = ScopeASTBuilder(self._context)
-
         if self.__is_async:
             # noinspection PyArgumentList
             node = ast.AsyncFunctionDef(  # type: ignore[call-overload,no-any-return,unused-ignore]
@@ -1644,7 +1776,7 @@ class FuncStatementASTBuilder(
                 name=self.__info.name,
                 decorator_list=self.__build_decorators(),
                 args=self.__build_args(),
-                returns=self.__build_returns(scope),
+                returns=self.__build_returns(),
                 body=self.__build_body(),
                 lineno=0,
             )
@@ -1656,7 +1788,7 @@ class FuncStatementASTBuilder(
                 name=self.__info.name,
                 decorator_list=self.__build_decorators(),
                 args=self.__build_args(),
-                returns=self.__build_returns(scope),
+                returns=self.__build_returns(),
                 body=self.__build_body(),
                 lineno=0,
             )
@@ -1720,13 +1852,16 @@ class FuncStatementASTBuilder(
 
         return node
 
-    def __build_returns(self, scope: ScopeASTBuilder) -> t.Optional[ast.expr]:
+    def __build_returns(self) -> t.Optional[ast.expr]:
         if self.__returns is None:
             return None
 
         ret = self.__returns
         if self.__iterator_cm:
-            ret = scope.iterator_type(ret, is_async=self.__is_async)
+            ret = ast.Subscript(
+                value=self._normalize_annotation(predef().async_iterator if self.__is_async else predef().iterator),
+                slice=self._normalize_annotation(ret),
+            )
 
         return self._normalize_expr(ret)
 

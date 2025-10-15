@@ -3,38 +3,43 @@ import inspect
 import typing as t
 
 import pytest
-from _pytest.mark import ParameterSet
+from _pytest.mark import MarkDecorator, ParameterSet
 
 from astlab.builder import Comprehension, ModuleASTBuilder, build_module, build_package
 from astlab.reader import parse_module
-from astlab.types import none_type_info
+from astlab.types import none_type_info, predef
 
 _PARAMS: t.Final[list[ParameterSet]] = []
 
 
-def _to_module_param(func: t.Callable[[], ModuleASTBuilder]) -> ParameterSet:
-    expected_code = inspect.getdoc(func)
-    assert expected_code is not None
+def _to_param(
+    marks: t.Optional[t.Sequence[MarkDecorator]] = None,
+) -> t.Callable[[t.Callable[[], ModuleASTBuilder]], t.Callable[[], ModuleASTBuilder]]:
+    def inner(func: t.Callable[[], ModuleASTBuilder]) -> t.Callable[[], ModuleASTBuilder]:
+        expected_code = inspect.getdoc(func)
+        assert expected_code is not None
 
-    param = pytest.param(func(), parse_module(expected_code), id=func.__name__)
-    _PARAMS.append(param)
+        param = pytest.param(func, expected_code, id=func.__name__, marks=marks or [])
+        _PARAMS.append(param)
 
-    return param
+        return func
+
+    return inner
 
 
 @pytest.mark.parametrize(("builder", "expected"), _PARAMS)
-def test_module_build(builder: ModuleASTBuilder, expected: ast.Module) -> None:
-    assert builder.render() == ast.unparse(expected)
+def test_module_build(builder: t.Callable[[], ModuleASTBuilder], expected: str) -> None:
+    assert builder().render() == ast.unparse(parse_module(expected))
 
 
-@_to_module_param
+@_to_param()
 def build_empty_module() -> ModuleASTBuilder:
     """"""
     with build_module("simple") as mod:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_simple_module() -> ModuleASTBuilder:
     # noinspection PySingleQuotedDocstring
     '''
@@ -89,7 +94,7 @@ def build_simple_module() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_bar_impl_module() -> ModuleASTBuilder:
     """
     import builtins
@@ -124,7 +129,7 @@ def build_bar_impl_module() -> ModuleASTBuilder:
         return bar
 
 
-@_to_module_param
+@_to_param()
 def build_optionals() -> ModuleASTBuilder:
     """
     import builtins
@@ -146,7 +151,7 @@ def build_optionals() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_unions() -> ModuleASTBuilder:
     """
     import builtins
@@ -168,7 +173,7 @@ def build_unions() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_runtime_types() -> ModuleASTBuilder:
     """
     import builtins
@@ -185,7 +190,7 @@ def build_runtime_types() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_is_not_none_expr() -> ModuleASTBuilder:
     """
     maybe = body if test is not None else None
@@ -197,7 +202,7 @@ def build_is_not_none_expr() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_list_const() -> ModuleASTBuilder:
     """
     result = [1, 2, foo, bar]
@@ -209,7 +214,7 @@ def build_list_const() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_list_compr_expr() -> ModuleASTBuilder:
     """
     result = [item for target in iterable]
@@ -224,7 +229,7 @@ def build_list_compr_expr() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_try_except_else() -> ModuleASTBuilder:
     """
     import builtins
@@ -256,7 +261,7 @@ def build_try_except_else() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_index_slice() -> ModuleASTBuilder:
     """
     list[str]
@@ -277,5 +282,46 @@ def build_index_slice() -> ModuleASTBuilder:
             .slice(mod.const(2), mod.const(5))
         )
         mod.stmt(mod.attr("arr").index(mod.tuple_expr(mod.slice(), mod.slice(), mod.const(0))))
+
+        return mod
+
+
+@_to_param()
+def build_type_alias() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    type MyInt = builtins.int
+    type Json = typing.Union[None, builtins.bool, builtins.int, builtins.float, builtins.str, builtins.list[Json], builtins.dict[builtins.str, Json]]
+    type Nested[T1, T2] = typing.Union[T1, T2, typing.Sequence[Nested[T1, T2]]]
+    """
+
+    with build_module("alias") as mod:
+        mod.type_alias("MyInt").assign(predef().int)
+
+        with mod.type_alias("Json") as json_alias:
+            json_alias.assign(
+                json_alias.union_type(
+                    predef().none,
+                    predef().bool,
+                    predef().int,
+                    predef().float,
+                    predef().str,
+                    mod.list_type(json_alias),
+                    mod.dict_type(predef().str, json_alias),
+                )
+            )
+
+        with (
+            mod.type_alias("Nested") as nested_alias,
+            nested_alias.type_var("T1") as type_var_1,
+            nested_alias.type_var("T2") as type_var_2,
+        ):
+            nested_alias.assign(
+                nested_alias.union_type(
+                    type_var_1, type_var_2, nested_alias.sequence_type(nested_alias.type_params(type_var_1, type_var_2))
+                )
+            )
 
         return mod

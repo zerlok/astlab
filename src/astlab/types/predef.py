@@ -59,7 +59,7 @@ class Predef:
         return NamedTypeInfo("object", self.builtins_module)
 
     @cached_property
-    def none_type(self) -> NamedTypeInfo:
+    def none(self) -> NamedTypeInfo:
         return none_type_info()
 
     @cached_property
@@ -141,6 +141,14 @@ class Predef:
     @cached_property
     def final(self) -> NamedTypeInfo:
         return NamedTypeInfo("Final", self.typing_module)
+
+    @cached_property
+    def type_alias(self) -> NamedTypeInfo:
+        return NamedTypeInfo("TypeAlias", self.typing_module)
+
+    @cached_property
+    def type_var(self) -> NamedTypeInfo:
+        return NamedTypeInfo("TypeVar", self.typing_module)
 
     @cached_property
     def class_var(self) -> NamedTypeInfo:
