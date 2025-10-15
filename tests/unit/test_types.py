@@ -19,7 +19,7 @@ from astlab.types.model import (
     builtins_module_info,
     none_type_info,
 )
-from tests.stub.types import StubBar, StubFoo, StubInt, StubX
+from tests.stub.types import StubBar, StubCM, StubFoo, StubInt, StubNode, StubUnionAlias, StubX
 
 
 class TestPackageInfo:
@@ -334,6 +334,23 @@ TYPES_CASES = pytest.mark.parametrize(
             ),
         ),
         pytest.param(
+            StubCM,
+            "tests.stub.types.StubCM",
+            NamedTypeInfo(
+                name="StubCM",
+                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
+            ),
+        ),
+        pytest.param(
+            StubNode[int],
+            "tests.stub.types.StubNode[builtins.int]",
+            NamedTypeInfo(
+                name="StubNode",
+                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
+                type_params=(NamedTypeInfo("int", ModuleInfo("builtins")),),
+            ),
+        ),
+        pytest.param(
             StubInt,
             "tests.stub.types.StubInt",
             NamedTypeInfo(
@@ -343,7 +360,57 @@ TYPES_CASES = pytest.mark.parametrize(
             marks=(
                 pytest.mark.skipif(
                     condition="sys.version_info < (3, 11)",
-                    reason="can't get StubInt qualname in older python versions",
+                    reason="can't get StubInt qualname in python versions < 3.11",
+                ),
+            ),
+        ),
+        pytest.param(
+            StubUnionAlias,
+            "typing.Union["
+            "tests.stub.types.StubFoo, "
+            "tests.stub.types.StubBar[tests.stub.types.StubInt], "
+            "tests.stub.types.StubX"
+            "]",
+            NamedTypeInfo(
+                name="Union",
+                module=ModuleInfo(name="typing"),
+                type_params=(
+                    NamedTypeInfo(
+                        name="StubFoo",
+                        module=ModuleInfo(
+                            name="types",
+                            package=PackageInfo(name="stub", parent=PackageInfo(name="tests")),
+                        ),
+                    ),
+                    NamedTypeInfo(
+                        name="StubBar",
+                        module=ModuleInfo(
+                            name="types",
+                            package=PackageInfo(name="stub", parent=PackageInfo(name="tests")),
+                        ),
+                        type_params=(
+                            NamedTypeInfo(
+                                name="StubInt",
+                                module=ModuleInfo(
+                                    name="types",
+                                    package=PackageInfo(name="stub", parent=PackageInfo(name="tests")),
+                                ),
+                            ),
+                        ),
+                    ),
+                    NamedTypeInfo(
+                        name="StubX",
+                        module=ModuleInfo(
+                            name="types",
+                            package=PackageInfo(name="stub", parent=PackageInfo(name="tests")),
+                        ),
+                    ),
+                ),
+            ),
+            marks=(
+                pytest.mark.skipif(
+                    condition="sys.version_info < (3, 11)",
+                    reason="can't get StubInt qualname in python versions < 3.11",
                 ),
             ),
         ),

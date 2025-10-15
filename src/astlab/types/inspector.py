@@ -30,14 +30,13 @@ class TypeInspector:
 
             return LiteralTypeInfo(values=args or ())
 
-        origin, type_params = self.__unpack(type_)
+        origin, type_params = self.__unpack_generic(type_)
         module, namespace, name = self.__get_module_naming(origin)
 
         return NamedTypeInfo(
             name=name,
             module=module,
             namespace=tuple(namespace),
-            # TODO: fix recursive type
             type_params=tuple(self.inspect(type_param) for type_param in type_params),
         )
 
@@ -45,7 +44,8 @@ class TypeInspector:
 
         def __get_module_naming(self, type_: RuntimeType) -> tuple[ModuleInfo, t.Sequence[str], str]:
             module = ModuleInfo.from_str(type_.__module__)
-            *namespace, name = type_.__qualname__.split(".")  # type: ignore[union-attr]
+            qualname = getattr(type_, "__qualname__", getattr(type_, "__name__", None)) or repr(type_)
+            *namespace, name = qualname.split(".")
             return module, namespace, name
 
     else:
@@ -82,7 +82,7 @@ class TypeInspector:
 
             return module, namespace, name
 
-    def __unpack(self, type_: RuntimeType) -> tuple[RuntimeType, t.Sequence[RuntimeType]]:
+    def __unpack_generic(self, type_: RuntimeType) -> tuple[RuntimeType, t.Sequence[RuntimeType]]:
         origin: t.Optional[RuntimeType] = t.get_origin(type_)
         args: t.Optional[t.Sequence[RuntimeType]] = t.get_args(type_)
 

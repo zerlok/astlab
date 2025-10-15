@@ -1,4 +1,9 @@
 import typing as t
+from dataclasses import dataclass
+
+from typing_extensions import TypeAlias
+
+from astlab._typing import override
 
 T = t.TypeVar("T")
 
@@ -17,4 +22,21 @@ class StubX:
             pass
 
 
+class StubCM(t.ContextManager["StubCM"]):
+    @override
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object, /) -> None:
+        pass
+
+
+@dataclass(frozen=True)
+class StubNode(t.Generic[T]):
+    value: T
+    parent: t.Optional["StubNode[T]"] = None
+
+
 StubInt = t.NewType("StubInt", int)
+
+StubUnionAlias: TypeAlias = t.Union[StubFoo, StubBar[StubInt], StubX]
+
+# TODO: enable after python 3.9, 3.10, 3.11 version support stop drop.
+#   type StubNumber = int | float  # noqa: ERA001
