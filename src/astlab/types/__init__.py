@@ -1,4 +1,6 @@
 __all__ = [
+    "EnumTypeInfo",
+    "EnumTypeValue",
     "LiteralTypeInfo",
     "LiteralTypeValue",
     "ModuleInfo",
@@ -10,6 +12,9 @@ __all__ = [
     "TypeInfo",
     "TypeInspector",
     "TypeLoader",
+    "TypeLoaderError",
+    "TypeVarInfo",
+    "TypeVarVariance",
     "builtins_module_info",
     "ellipsis_type_info",
     "none_type_info",
@@ -19,8 +24,10 @@ __all__ = [
 
 from astlab.types.annotator import TypeAnnotator
 from astlab.types.inspector import TypeInspector
-from astlab.types.loader import ModuleLoader, TypeLoader
+from astlab.types.loader import ModuleLoader, TypeLoader, TypeLoaderError
 from astlab.types.model import (
+    EnumTypeInfo,
+    EnumTypeValue,
     LiteralTypeInfo,
     LiteralTypeValue,
     ModuleInfo,
@@ -28,6 +35,8 @@ from astlab.types.model import (
     PackageInfo,
     RuntimeType,
     TypeInfo,
+    TypeVarInfo,
+    TypeVarVariance,
     builtins_module_info,
     ellipsis_type_info,
     none_type_info,

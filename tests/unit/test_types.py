@@ -6,6 +6,7 @@ from types import ModuleType
 import pytest
 
 from astlab import abc as astlab_abc
+from astlab.types import EnumTypeInfo, EnumTypeValue
 from astlab.types.annotator import TypeAnnotator
 from astlab.types.inspector import TypeInspector
 from astlab.types.loader import TypeLoader, TypeLoaderError
@@ -19,7 +20,7 @@ from astlab.types.model import (
     builtins_module_info,
     none_type_info,
 )
-from tests.stub.types import StubBar, StubCM, StubFoo, StubInt, StubNode, StubUnionAlias, StubX
+from tests.stub.types import StubBar, StubCM, StubEnum, StubFoo, StubInt, StubNode, StubUnionAlias, StubX
 
 
 class TestPackageInfo:
@@ -331,6 +332,24 @@ TYPES_CASES = pytest.mark.parametrize(
                 name="Z",
                 module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
                 namespace=("StubX", "Y"),
+            ),
+        ),
+        pytest.param(
+            StubEnum,
+            "tests.stub.types.StubEnum",
+            EnumTypeInfo(
+                name="StubEnum",
+                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
+                values=(
+                    EnumTypeValue(
+                        name="FOO",
+                        value=1,
+                    ),
+                    EnumTypeValue(
+                        name="BAR",
+                        value=2,
+                    ),
+                ),
             ),
         ),
         pytest.param(

@@ -20,6 +20,7 @@ from astlab.types import (
     ellipsis_type_info,
     none_type_info,
 )
+from astlab.types.model import EnumTypeInfo, TypeVarInfo
 
 
 class DefaultASTResolver(ASTResolver):
@@ -104,10 +105,6 @@ class DefaultASTResolver(ASTResolver):
         self.__dependencies = dependencies
 
     def __type_info_expr(self, info: TypeInfo, tail: t.Sequence[str] = (), *, is_annotation: bool = False) -> ast.expr:
-        if isinstance(info, NamedTypeInfo) and info.type_vars:
-            msg = "can't build expr for type with type vars"
-            raise ValueError(msg, info)
-
         resolved_info = self.__resolve_dependency(info)
         return self.__type_info_attr(resolved_info, tail, is_annotation=is_annotation)
 
@@ -126,22 +123,24 @@ class DefaultASTResolver(ASTResolver):
         )
 
         origin = self.__chain_attr(ast.Name(id=head), *middle, *tail)
-        args = (
+        params = (
             (
                 [self.__type_info_attr(param, is_annotation=is_annotation) for param in info.type_params]
                 if isinstance(info, NamedTypeInfo)
+                else []
+                if isinstance(info, EnumTypeInfo)
                 else [ast.Constant(value=value) for value in info.values]
             )
-            if not isinstance(info, ModuleInfo)
+            if not isinstance(info, (ModuleInfo, TypeVarInfo))
             else []
         )
 
         return (
             ast.Subscript(
                 value=origin,
-                slice=ast.Tuple(elts=args) if len(args) > 1 else args[0],
+                slice=ast.Tuple(elts=params) if len(params) > 1 else params[0],
             )
-            if args
+            if params
             else origin
         )
 
@@ -153,7 +152,7 @@ class DefaultASTResolver(ASTResolver):
 
             return info
 
-        elif isinstance(info, NamedTypeInfo):
+        elif isinstance(info, (TypeVarInfo, NamedTypeInfo, EnumTypeInfo)):
             if info.module == self.__module:
                 ns = (
                     info.namespace[len(self.__namespace) :]
@@ -165,10 +164,14 @@ class DefaultASTResolver(ASTResolver):
                 self.__dependencies.add(info.module)
                 ns = info.namespace
 
-            return replace(
-                info,
-                namespace=ns,
-                type_params=tuple(self.__resolve_dependency(param) for param in info.type_params),
+            return (
+                replace(
+                    info,
+                    namespace=ns,
+                    type_params=tuple(self.__resolve_dependency(param) for param in info.type_params),
+                )
+                if isinstance(info, NamedTypeInfo)
+                else replace(info, namespace=ns)
             )
 
         elif isinstance(info, LiteralTypeInfo):

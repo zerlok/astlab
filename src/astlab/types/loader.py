@@ -17,12 +17,14 @@ from astlab._typing import assert_never
 from astlab.cache import lru_cache_method
 from astlab.reader import import_module_path
 from astlab.types.model import (
+    EnumTypeInfo,
     LiteralTypeInfo,
     ModuleInfo,
     NamedTypeInfo,
     PackageInfo,
     RuntimeType,
     TypeInfo,
+    TypeVarInfo,
     ellipsis_type_info,
     none_type_info,
 )
@@ -68,42 +70,79 @@ class TypeLoader:
     @lru_cache_method()
     def load(self, info: TypeInfo) -> RuntimeType:
         if isinstance(info, ModuleInfo):
-            return self.__module.load(info)
+            rtt = self.__load_module(info)
+
+        elif isinstance(info, TypeVarInfo):
+            rtt = self.__load_type_var(info)
 
         elif isinstance(info, NamedTypeInfo):
             if info == none_type_info():
-                return None
+                rtt = None
 
             elif info == ellipsis_type_info():
-                return Ellipsis
+                rtt = Ellipsis
 
-            try:
-                value: object = self.__module.load(info.module)
-
-            except ImportError as err:
-                msg = "can't load module"
-                raise TypeLoaderError(msg, info) from err
-
-            try:
-                for name in info.namespace:
-                    value = getattr(value, name)
-
-                # NOTE: need to check that we loaded a type.
-                type_: object = getattr(value, info.name)
-
-            except AttributeError as err:
-                msg = "can't module has no attribute"
-                raise TypeLoaderError(msg, info) from err
-
-            if not info.type_params:
-                return type_
-
-            # TODO: fix recursive type load
-            type_params = tuple(self.load(tp) for tp in info.type_params)
-            return getitem(type_, type_params) if len(type_params) > 1 else getitem(type_, type_params[0])  # type: ignore[call-overload, misc]
+            else:
+                rtt = self.__load_named_type(info)
 
         elif isinstance(info, LiteralTypeInfo):
-            return getitem(t.Literal, info.values)
+            rtt = getitem(t.Literal, info.values)
+
+        elif isinstance(info, EnumTypeInfo):
+            rtt = self.__load_type_by_name(info)
 
         else:
             assert_never(info)
+
+        return rtt
+
+    def clear_cache(self) -> None:
+        self.load.cache_clear()  # type: ignore[attr-defined]
+        self.__module.clear_cache()
+
+    def __load_module(self, info: ModuleInfo) -> RuntimeType:
+        try:
+            return self.__module.load(info)
+
+        except ImportError as err:
+            msg = "module can't be loaded"
+            raise TypeLoaderError(msg, info) from err
+
+    def __load_type_var(self, info: TypeVarInfo) -> RuntimeType:
+        # noinspection PyTypeHints
+        return t.TypeVar(
+            name=info.name,
+            bound=self.load(info.lower) if info.lower else None,
+            covariant=info.variance == "covariant",
+            contravariant=info.variance == "contravariant",
+        )
+
+    def __load_named_type(self, info: NamedTypeInfo) -> RuntimeType:
+        rtt = self.__load_type_by_name(info)
+        if not info.type_params:
+            return rtt
+
+        # TODO: fix recursive type load
+        loaded_type_params = tuple(self.load(tp) for tp in info.type_params)
+
+        try:
+            return (
+                getitem(rtt, loaded_type_params) if len(loaded_type_params) > 1 else getitem(rtt, loaded_type_params[0])  # type: ignore[arg-type,misc]
+            )
+
+        except TypeError as err:
+            msg = "type params can't be applied to type"
+            raise TypeLoaderError(msg, info) from err
+
+    def __load_type_by_name(self, info: t.Union[NamedTypeInfo, EnumTypeInfo]) -> RuntimeType:
+        container: object = self.load(info.module)
+        try:
+            for name in info.namespace:
+                container = getattr(container, name)
+
+            # NOTE: need to check that we loaded a type.
+            return getattr(container, info.name)  # type: ignore[misc]
+
+        except AttributeError as err:
+            msg = "module has not attribute"
+            raise TypeLoaderError(msg, info) from err

@@ -12,6 +12,16 @@ from astlab.types import none_type_info, predef
 _PARAMS: t.Final[list[ParameterSet]] = []
 
 
+@pytest.mark.parametrize(("builder", "expected_code"), _PARAMS)
+def test_module_build(builder: t.Callable[[], ModuleASTBuilder], normalized_expected_code: str) -> None:
+    assert builder().render() == normalized_expected_code
+
+
+@pytest.fixture
+def normalized_expected_code(expected_code: str) -> str:
+    return ast.unparse(parse_module(expected_code))
+
+
 def _to_param(
     marks: t.Optional[t.Sequence[MarkDecorator]] = None,
 ) -> t.Callable[[t.Callable[[], ModuleASTBuilder]], t.Callable[[], ModuleASTBuilder]]:
@@ -25,11 +35,6 @@ def _to_param(
         return func
 
     return inner
-
-
-@pytest.mark.parametrize(("builder", "expected"), _PARAMS)
-def test_module_build(builder: t.Callable[[], ModuleASTBuilder], expected: str) -> None:
-    assert builder().render() == ast.unparse(parse_module(expected))
 
 
 @_to_param()
@@ -140,6 +145,7 @@ def build_optionals() -> ModuleASTBuilder:
         my_optional_str: typing.Optional[builtins.str]
         my_optional_list_of_int: typing.Optional[builtins.list[builtins.int]]
         my_list_of_optional_int: builtins.list[typing.Optional[builtins.int]]
+        my_optional_str_default: typing.Optional[builtins.str] = None
     """
 
     with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
@@ -147,6 +153,7 @@ def build_optionals() -> ModuleASTBuilder:
         opt.field_def("my_optional_str", opt.type_ref(str).optional())
         opt.field_def("my_optional_list_of_int", opt.type_ref(int).list().optional())
         opt.field_def("my_list_of_optional_int", opt.type_ref(int).optional().list())
+        opt.field_def("my_optional_str_default", opt.type_ref(str).optional(), opt.none())
 
         return mod
 
@@ -286,14 +293,138 @@ def build_index_slice() -> ModuleASTBuilder:
         return mod
 
 
-@_to_param()
-def build_type_alias() -> ModuleASTBuilder:
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info >= (3, 12)",
+            reason="syntax `type XXX = YYY` was introduced since python version 3.12",
+        ),
+    ),
+)
+def build_generic_class_before_312() -> ModuleASTBuilder:
+    """
+    import typing
+
+    T = typing.TypeVar('T')
+
+    class Node(typing.Generic[T]):
+        value: T
+        parent: 'Node[T]'
+    """
+
+    with build_module("generic") as mod:
+        with mod.class_def("Node") as node, node.type_var("T") as type_var:
+            node.field_def("value", type_var)
+            node.field_def("parent", node.ref().type_params(type_var))
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 12)",
+            reason="syntax `type XXX = YYY` was introduced since python version 3.12",
+        ),
+    ),
+)
+def build_generic_class_after_312() -> ModuleASTBuilder:
+    """
+    import builtins
+
+    class Node[T : builtins.int]:
+        value: T
+        parent: Node[T]
+    """
+
+    with build_module("generic") as mod:
+        with mod.class_def("Node") as node, node.type_var("T").lower(predef().int) as type_var:
+            node.field_def("value", type_var)
+            node.field_def("parent", node.ref().type_params(type_var))
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info >= (3, 12)",
+            reason="syntax `type XXX = YYY` was introduced since python version 3.12",
+        ),
+    ),
+)
+def build_type_alias_before_syntax_312() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    MyInt: typing.TypeAlias = builtins.int
+    Json: typing.TypeAlias = typing.Union[
+        None,
+        builtins.bool,
+        builtins.int,
+        builtins.float,
+        builtins.str,
+        builtins.list['Json'],
+        builtins.dict[builtins.str, 'Json'],
+    ]
+    """
+
+    with build_module("alias") as mod:
+        mod.type_alias("MyInt").assign(predef().int)
+
+        with mod.type_alias("Json") as json_alias:
+            json_alias.assign(
+                json_alias.union_type(
+                    predef().none,
+                    predef().bool,
+                    predef().int,
+                    predef().float,
+                    predef().str,
+                    mod.list_type(json_alias),
+                    mod.dict_type(predef().str, json_alias),
+                )
+            )
+
+        with (
+            mod.type_alias("Nested") as nested_alias,
+            nested_alias.type_var("T1") as type_var_1,
+            nested_alias.type_var("T2") as type_var_2,
+        ):
+            nested_alias.assign(
+                nested_alias.union_type(
+                    type_var_1,
+                    type_var_2,
+                    nested_alias.sequence_type(nested_alias.type_params(type_var_1, type_var_2)),
+                )
+            )
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 12)",
+            reason="syntax `type XXX = YYY` was introduced since python version 3.12",
+        ),
+    ),
+)
+def build_type_alias_syntax_312() -> ModuleASTBuilder:
     """
     import builtins
     import typing
 
     type MyInt = builtins.int
-    type Json = typing.Union[None, builtins.bool, builtins.int, builtins.float, builtins.str, builtins.list[Json], builtins.dict[builtins.str, Json]]
+    type Json = typing.Union[
+        None,
+        builtins.bool,
+        builtins.int,
+        builtins.float,
+        builtins.str,
+        builtins.list[Json],
+        builtins.dict[builtins.str, Json]
+    ]
     type Nested[T1, T2] = typing.Union[T1, T2, typing.Sequence[Nested[T1, T2]]]
     """
 
@@ -320,7 +451,9 @@ def build_type_alias() -> ModuleASTBuilder:
         ):
             nested_alias.assign(
                 nested_alias.union_type(
-                    type_var_1, type_var_2, nested_alias.sequence_type(nested_alias.type_params(type_var_1, type_var_2))
+                    type_var_1,
+                    type_var_2,
+                    nested_alias.sequence_type(nested_alias.type_params(type_var_1, type_var_2)),
                 )
             )
 
