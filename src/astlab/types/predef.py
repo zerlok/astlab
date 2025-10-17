@@ -31,6 +31,10 @@ class Predef:
         return typing_module_info()
 
     @cached_property
+    def enum_module(self) -> ModuleInfo:
+        return ModuleInfo("enum")
+
+    @cached_property
     def dataclasses_module(self) -> ModuleInfo:
         return ModuleInfo("dataclasses")
 
@@ -59,7 +63,7 @@ class Predef:
         return NamedTypeInfo("object", self.builtins_module)
 
     @cached_property
-    def none_type(self) -> NamedTypeInfo:
+    def none(self) -> NamedTypeInfo:
         return none_type_info()
 
     @cached_property
@@ -143,6 +147,14 @@ class Predef:
         return NamedTypeInfo("Final", self.typing_module)
 
     @cached_property
+    def type_alias(self) -> NamedTypeInfo:
+        return NamedTypeInfo("TypeAlias", self.typing_module)
+
+    @cached_property
+    def type_var(self) -> NamedTypeInfo:
+        return NamedTypeInfo("TypeVar", self.typing_module)
+
+    @cached_property
     def class_var(self) -> NamedTypeInfo:
         return NamedTypeInfo("ClassVar", self.typing_module)
 
@@ -221,6 +233,14 @@ class Predef:
     @cached_property
     def literal(self) -> NamedTypeInfo:
         return NamedTypeInfo("Literal", self.typing_module)
+
+    @cached_property
+    def enum(self) -> NamedTypeInfo:
+        return NamedTypeInfo("Enum", self.enum_module)
+
+    @cached_property
+    def enum_auto(self) -> NamedTypeInfo:
+        return NamedTypeInfo("auto", self.enum_module)
 
     @cached_property
     def no_return(self) -> NamedTypeInfo:

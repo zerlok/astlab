@@ -7,18 +7,34 @@ __all__ = [
     "TypeInspector",
 ]
 
+import enum
 import sys
 import typing as t
+from dataclasses import replace
 
 from astlab.cache import lru_cache_method
-from astlab.types.model import LiteralTypeInfo, ModuleInfo, NamedTypeInfo, RuntimeType, TypeInfo, typing_module_info
+from astlab.types.model import (
+    EnumTypeInfo,
+    EnumTypeValue,
+    LiteralTypeInfo,
+    ModuleInfo,
+    NamedTypeInfo,
+    RuntimeType,
+    TypeInfo,
+    TypeVarInfo,
+    typing_module_info,
+)
+from astlab.types.predef import get_predef
 
 
 class TypeInspector:
     """Provides type info from runtime type."""
 
     @lru_cache_method()
-    def inspect(self, type_: RuntimeType) -> TypeInfo:
+    def inspect(self, type_: t.Union[TypeInfo, RuntimeType]) -> TypeInfo:
+        if isinstance(type_, (ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo)):
+            return type_
+
         if isinstance(
             type_,
             t._LiteralGenericAlias,  # type: ignore[attr-defined] # noqa: SLF001
@@ -32,6 +48,33 @@ class TypeInspector:
 
         origin, type_params = self.__unpack_generic(type_)
         module, namespace, name = self.__get_module_naming(origin)
+
+        if isinstance(origin, t.TypeVar):
+            return TypeVarInfo(
+                name=origin.__name__,
+                module=module,
+                namespace=namespace,
+                variance=(
+                    "covariant"
+                    if origin.__covariant__
+                    else "contravariant"
+                    if origin.__contravariant__
+                    else "invariant"
+                ),
+                lower=self.inspect(origin.__bound__)
+                if origin.__bound__ is not None
+                else replace(get_predef().union, type_params=tuple(self.inspect(co) for co in origin.__constraints__))
+                if origin.__constraints__
+                else None,
+            )
+
+        if isinstance(origin, type) and issubclass(origin, enum.Enum):
+            return EnumTypeInfo(
+                name=name,
+                module=module,
+                namespace=tuple(namespace),
+                values=tuple(EnumTypeValue(name=enum_value.name, value=enum_value.value) for enum_value in origin),
+            )
 
         return NamedTypeInfo(
             name=name,

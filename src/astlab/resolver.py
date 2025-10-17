@@ -5,65 +5,53 @@ __all__ = [
 ]
 
 import ast
+import sys
 import typing as t
 from dataclasses import replace
 from itertools import chain
 
 from astlab._typing import assert_never, override
-from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefinitionBuilder, TypeRef
+from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefinitionBuilder, TypeExpr
+from astlab.traverse import traverse_dfs_post_order
 from astlab.types import (
     LiteralTypeInfo,
     ModuleInfo,
     NamedTypeInfo,
+    TypeAnnotator,
     TypeInfo,
     TypeInspector,
     ellipsis_type_info,
     none_type_info,
 )
+from astlab.types.model import EnumTypeInfo, TypeVarInfo
 
 
 class DefaultASTResolver(ASTResolver):
-    def __init__(self, inspector: t.Optional[TypeInspector] = None) -> None:
+    def __init__(
+        self,
+        inspector: t.Optional[TypeInspector] = None,
+        annotator: t.Optional[TypeAnnotator] = None,
+    ) -> None:
         self.__module: t.Optional[ModuleInfo] = None
         self.__namespace: t.Sequence[str] = ()
         self.__dependencies: t.MutableSet[ModuleInfo] = set[ModuleInfo]()
         self.__inspector = inspector if inspector is not None else TypeInspector()
+        self.__annotator = annotator if annotator is not None else TypeAnnotator()
 
     @override
-    def resolve_expr(self, ref: TypeRef, *tail: str) -> ast.expr:
-        if isinstance(ref, ast.expr):
-            return self.__chain_attr(ref, *tail)
+    def resolve_expr(self, expr: TypeExpr, *tail: str) -> ast.expr:
+        if isinstance(expr, ast.expr):
+            return self.__chain_attr(expr, *tail)
 
-        elif isinstance(ref, ASTExpressionBuilder):
-            return self.__chain_attr(ref.build_expr(), *tail)
+        elif isinstance(expr, ASTExpressionBuilder):
+            return self.__chain_attr(expr.build_expr(), *tail)
 
-        elif isinstance(ref, (NamedTypeInfo, LiteralTypeInfo)):
-            return self.__type_info_expr(ref, tail)
-
-        elif isinstance(ref, TypeDefinitionBuilder):
-            return self.__type_info_expr(ref.info, tail)
+        elif isinstance(expr, TypeDefinitionBuilder):
+            return self.__resolve_info(expr.info, tail)
 
         else:
-            info = self.__inspector.inspect(ref)
-            return self.__type_info_expr(info, tail)
-
-    @override
-    def resolve_annotation(self, ref: TypeRef) -> ast.expr:
-        if isinstance(ref, ast.expr):
-            return ref
-
-        elif isinstance(ref, ASTExpressionBuilder):
-            return ref.build_annotation()
-
-        elif isinstance(ref, (NamedTypeInfo, LiteralTypeInfo)):
-            return self.__type_info_expr(ref, is_annotation=True)
-
-        elif isinstance(ref, TypeDefinitionBuilder):
-            return self.__type_info_expr(ref.info, is_annotation=True)
-
-        else:
-            info = self.__inspector.inspect(ref)
-            return self.__type_info_expr(info, is_annotation=True)
+            info = self.__inspector.inspect(expr)
+            return self.__resolve_info(info, tail)
 
     @override
     def resolve_stmts(
@@ -103,47 +91,26 @@ class DefaultASTResolver(ASTResolver):
         self.__namespace = namespace
         self.__dependencies = dependencies
 
-    def __type_info_expr(self, info: TypeInfo, tail: t.Sequence[str] = (), *, is_annotation: bool = False) -> ast.expr:
-        if isinstance(info, NamedTypeInfo) and info.type_vars:
-            msg = "can't build expr for type with type vars"
-            raise ValueError(msg, info)
+    def __resolve_info(self, root: TypeInfo, tail: t.Sequence[str] = ()) -> ast.expr:
+        nodes = dict[TypeInfo, ast.expr]()
 
-        resolved_info = self.__resolve_dependency(info)
-        return self.__type_info_attr(resolved_info, tail, is_annotation=is_annotation)
+        for info in traverse_dfs_post_order(root, self.__get_children):
+            resolved_info = self.__resolve_dependency(info)
 
-    def __type_info_attr(self, info: TypeInfo, tail: t.Sequence[str] = (), *, is_annotation: bool = False) -> ast.expr:
-        if is_annotation and info == none_type_info():
-            return ast.Constant(value=None)
+            node = self.__build_expr(resolved_info)
+            if isinstance(info, NamedTypeInfo) and info.type_params:
+                params = [nodes[tp] for tp in info.type_params]
+                node = ast.Subscript(
+                    value=node,
+                    slice=ast.Tuple(elts=params) if len(params) > 1 else params[0],
+                )
 
-        if is_annotation and info == ellipsis_type_info():
-            return ast.Constant(value=...)
+            if self.__is_forward_ref(resolved_info):
+                node = ast.Constant(value=ast.unparse(node))
 
-        parts = self.__module.parts if self.__module is not None else ()
-        head, *middle = (
-            (info.parts[len(parts) :] if info.module == self.__module else info.parts)
-            if not isinstance(info, ModuleInfo)
-            else info.parts
-        )
+            nodes[info] = node
 
-        origin = self.__chain_attr(ast.Name(id=head), *middle, *tail)
-        args = (
-            (
-                [self.__type_info_attr(param, is_annotation=is_annotation) for param in info.type_params]
-                if isinstance(info, NamedTypeInfo)
-                else [ast.Constant(value=value) for value in info.values]
-            )
-            if not isinstance(info, ModuleInfo)
-            else []
-        )
-
-        return (
-            ast.Subscript(
-                value=origin,
-                slice=ast.Tuple(elts=args) if len(args) > 1 else args[0],
-            )
-            if args
-            else origin
-        )
+        return self.__chain_attr(nodes[root], *tail)
 
     def __resolve_dependency(self, info: TypeInfo) -> TypeInfo:
         if isinstance(info, ModuleInfo):
@@ -153,33 +120,62 @@ class DefaultASTResolver(ASTResolver):
 
             return info
 
-        elif isinstance(info, NamedTypeInfo):
-            if info.module == self.__module:
-                ns = (
-                    info.namespace[len(self.__namespace) :]
-                    if info.namespace[: len(self.__namespace)] == self.__namespace
-                    else info.namespace
-                )
+        elif isinstance(info, (TypeVarInfo, NamedTypeInfo, EnumTypeInfo)):
+            if info.module != self.__module:
+                self.__dependencies.add(info.module)
+                return info
+
+            elif info.namespace[: len(self.__namespace)] == self.__namespace:
+                # use shorten namespace for a type in nested namespace of the current scope
+                return replace(info, namespace=info.namespace[len(self.__namespace) :])
 
             else:
-                self.__dependencies.add(info.module)
-                ns = info.namespace
-
-            return replace(
-                info,
-                namespace=ns,
-                type_params=tuple(self.__resolve_dependency(param) for param in info.type_params),
-            )
+                return info
 
         elif isinstance(info, LiteralTypeInfo):
-            self.__dependencies.add(info.module)
+            if info.module != self.__module:
+                self.__dependencies.add(info.module)
+
             return info
 
         else:
             assert_never(info)
+
+    def __build_expr(self, info: TypeInfo) -> ast.expr:
+        if info == none_type_info():
+            return ast.Constant(value=None)
+
+        if info == ellipsis_type_info():
+            return ast.Constant(value=...)
+
+        parts = self.__module.parts if self.__module is not None else ()
+        head, *tail = (
+            (info.parts[len(parts) :] if info.module == self.__module else info.parts)
+            if not isinstance(info, ModuleInfo)
+            else info.parts
+        )
+
+        return self.__chain_attr(ast.Name(id=head), *tail)
+
+    if sys.version_info >= (3, 14):
+
+        def __is_forward_ref(self, _: TypeInfo) -> bool:
+            return False
+
+    else:
+
+        def __is_forward_ref(self, info: TypeInfo) -> bool:
+            return (
+                not isinstance(info, ModuleInfo)
+                and info.module == self.__module
+                and (*info.namespace, info.name) == self.__namespace
+            )
 
     def __chain_attr(self, expr: ast.expr, *tail: str) -> ast.expr:
         for attr in tail:
             expr = ast.Attribute(attr=attr, value=expr)
 
         return expr
+
+    def __get_children(self, info: TypeInfo) -> t.Iterable[TypeInfo]:
+        return info.type_params if isinstance(info, NamedTypeInfo) else ()

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 __all__ = [
+    "EnumTypeInfo",
+    "EnumTypeValue",
     "LiteralTypeInfo",
     "LiteralTypeValue",
     "ModuleInfo",
@@ -8,6 +10,8 @@ __all__ = [
     "PackageInfo",
     "RuntimeType",
     "TypeInfo",
+    "TypeVarInfo",
+    "TypeVarVariance",
     "builtins_module_info",
     "ellipsis_type_info",
     "none_type_info",
@@ -144,13 +148,32 @@ def typing_module_info() -> ModuleInfo:
     return ModuleInfo("typing")
 
 
+TypeVarVariance: TypeAlias = t.Literal["invariant", "covariant", "contravariant"]
+
+
+@dataclass(frozen=True)
+class TypeVarInfo:
+    name: str
+    module: ModuleInfo
+    namespace: t.Sequence[str] = field(default_factory=tuple)
+    variance: TypeVarVariance = "invariant"
+    lower: t.Optional[TypeInfo] = None
+
+    @cached_property
+    def parts(self) -> t.Sequence[str]:
+        return *self.module.parts, *self.namespace, self.name
+
+    @cached_property
+    def qualname(self) -> str:
+        return ".".join(self.parts)
+
+
 @dataclass(frozen=True)
 class NamedTypeInfo:
     name: str
     module: ModuleInfo
     namespace: t.Sequence[str] = field(default_factory=tuple)
     type_params: t.Sequence[TypeInfo] = field(default_factory=tuple)
-    type_vars: t.Sequence[str] = field(default_factory=tuple)
 
     @classmethod
     def build(
@@ -158,7 +181,6 @@ class NamedTypeInfo:
         module: t.Union[str, t.Sequence[str], ModuleInfo],
         name: str,
         type_params: t.Optional[t.Sequence[TypeInfo]] = None,
-        type_vars: t.Optional[t.Sequence[str]] = None,
     ) -> NamedTypeInfo:
         *namespace, type_name = name.split(".")
         if not type_name:
@@ -174,7 +196,6 @@ class NamedTypeInfo:
             else ModuleInfo.build(*module),
             namespace=tuple(namespace),
             type_params=tuple(type_params or ()),
-            type_vars=tuple(type_vars or ()),
         )
 
     @cached_property
@@ -185,19 +206,8 @@ class NamedTypeInfo:
     def qualname(self) -> str:
         return ".".join(self.parts)
 
-    def with_type_params(self, *infos: TypeInfo) -> NamedTypeInfo:
-        if not infos:
-            return self
-
-        if len(infos) > len(self.type_vars):
-            msg = "too many type parameters"
-            raise ValueError(msg, infos, self)
-
-        return replace(
-            self,
-            type_params=(*self.type_params, *infos),
-            type_vars=self.type_vars[len(infos) :],
-        )
+    def with_type_params(self, *type_params: TypeInfo) -> NamedTypeInfo:
+        return replace(self, type_params=type_params)
 
 
 @cache  # type: ignore[misc]
@@ -215,7 +225,6 @@ LiteralTypeValue: TypeAlias = t.Union[bool, int, bytes, str, None]
 
 @dataclass(frozen=True)
 class LiteralTypeInfo:
-    # TODO: enum values
     values: t.Sequence[LiteralTypeValue]
 
     @cached_property
@@ -239,4 +248,49 @@ class LiteralTypeInfo:
         return ".".join(self.parts)
 
 
-TypeInfo: TypeAlias = t.Union[ModuleInfo, NamedTypeInfo, LiteralTypeInfo]
+@dataclass(frozen=True)
+class EnumTypeValue:
+    name: str
+    value: LiteralTypeValue
+
+
+@dataclass(frozen=True)
+class EnumTypeInfo:
+    name: str
+    module: ModuleInfo
+    namespace: t.Sequence[str] = field(default_factory=tuple)
+    values: t.Sequence[EnumTypeValue] = field(default_factory=tuple)
+
+    @classmethod
+    def build(
+        cls,
+        module: t.Union[str, t.Sequence[str], ModuleInfo],
+        name: str,
+        values: t.Sequence[EnumTypeValue],
+    ) -> EnumTypeInfo:
+        *namespace, type_name = name.split(".")
+        if not type_name:
+            msg = "type name can't be empty"
+            raise ValueError(msg, name)
+
+        return EnumTypeInfo(
+            name=type_name,
+            module=module
+            if isinstance(module, ModuleInfo)
+            else ModuleInfo.from_str(module)
+            if isinstance(module, str)
+            else ModuleInfo.build(*module),
+            namespace=tuple(namespace),
+            values=values,
+        )
+
+    @cached_property
+    def parts(self) -> t.Sequence[str]:
+        return *self.module.parts, *self.namespace, self.name
+
+    @cached_property
+    def qualname(self) -> str:
+        return ".".join(self.parts)
+
+
+TypeInfo: TypeAlias = t.Union[ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo]

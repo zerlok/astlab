@@ -5,19 +5,24 @@ __all__ = [
 ]
 
 import ast
+import enum
 import typing as t
 from collections import deque
 from dataclasses import replace
 
 from astlab._typing import assert_never, override
 from astlab.cache import lru_cache_method
-from astlab.types.loader import ModuleLoader
+from astlab.types.loader import TypeLoader, TypeLoaderError
 from astlab.types.model import (
+    EnumTypeInfo,
+    EnumTypeValue,
     LiteralTypeInfo,
     LiteralTypeValue,
     ModuleInfo,
     NamedTypeInfo,
+    RuntimeType,
     TypeInfo,
+    TypeVarInfo,
     builtins_module_info,
     ellipsis_type_info,
     none_type_info,
@@ -27,35 +32,44 @@ from astlab.types.model import (
 class TypeAnnotator:
     """Provides annotation string form type info and vice versa (parses annotation to type info)."""
 
-    def __init__(self, loader: t.Optional[ModuleLoader] = None) -> None:
-        self.__loader = loader or ModuleLoader()
+    def __init__(self, loader: t.Optional[TypeLoader] = None) -> None:
+        self.__loader = loader or TypeLoader()
 
     @lru_cache_method()
     def annotate(self, info: TypeInfo) -> str:
+        if info == none_type_info():
+            return "None"
+
+        if info == ellipsis_type_info():
+            return "..."
+
         if isinstance(info, ModuleInfo):
-            return "builtins.module"
+            annotation = "builtins.module"
+
+        elif isinstance(info, TypeVarInfo):
+            annotation = info.qualname
 
         elif isinstance(info, NamedTypeInfo):
-            if info == none_type_info():
-                return "None"
+            annotation = info.qualname
 
-            if info == ellipsis_type_info():
-                return "..."
-
-            if not info.type_params:
-                return info.qualname
-
-            # TODO: fix recursive type
-            params = ", ".join(self.annotate(tp) for tp in info.type_params)
-            return f"{info.qualname}[{params}]"
+            if info.type_params:
+                # TODO: fix recursive type
+                params = ", ".join(self.annotate(tp) for tp in info.type_params)
+                annotation = f"{annotation}[{params}]"
 
         elif isinstance(info, LiteralTypeInfo):
             vals = ", ".join(repr(v) for v in info.values)
-            return f"typing.Literal[{vals}]"
+            annotation = f"{info.qualname}[{vals}]"
+
+        elif isinstance(info, EnumTypeInfo):
+            annotation = info.qualname
 
         else:
             assert_never(info)
 
+        return annotation
+
+    @lru_cache_method()
     def parse(self, qualname: str) -> TypeInfo:
         node = ast.parse(qualname)
 
@@ -67,7 +81,7 @@ class TypeAnnotator:
 
 
 class _ExprParser(ast.NodeVisitor):
-    def __init__(self, loader: ModuleLoader) -> None:
+    def __init__(self, loader: TypeLoader) -> None:
         self.__loader = loader
         self.__parts = deque[str]()
         self.__info: t.Optional[TypeInfo] = None
@@ -89,16 +103,36 @@ class _ExprParser(ast.NodeVisitor):
     def visit_Name(self, node: ast.Name) -> None:
         self.__parts.appendleft(node.id)
         *parts, name = self.__parts
+        named_type_info = self.__extract_named_type_info(node, parts, name)
+        rtt: RuntimeType = self.__loader.load(named_type_info)
 
-        module = self.__extract_module_info(node, parts)
+        if isinstance(rtt, t.TypeVar):  # type: ignore[misc]
+            self.__set_result(
+                TypeVarInfo(
+                    name=named_type_info.name,
+                    module=named_type_info.module,
+                    namespace=named_type_info.namespace,
+                )
+            )
 
-        info = NamedTypeInfo(
-            name=name,
-            module=module,
-            namespace=tuple(parts[len(module.parts) :]),
-        )
+        elif isinstance(rtt, type) and issubclass(rtt, enum.Enum):  # type: ignore[misc]
+            self.__set_result(
+                EnumTypeInfo(
+                    name=named_type_info.name,
+                    module=named_type_info.module,
+                    namespace=named_type_info.namespace,
+                    values=tuple(
+                        EnumTypeValue(
+                            name=enum_value.name,
+                            value=enum_value.value,  # type: ignore[misc]
+                        )
+                        for enum_value in rtt
+                    ),
+                )
+            )
 
-        self.__set_result(info)
+        else:
+            self.__set_result(named_type_info)
 
     @override
     def visit_Attribute(self, node: ast.Attribute) -> None:
@@ -121,7 +155,6 @@ class _ExprParser(ast.NodeVisitor):
                         if isinstance(node.slice, ast.Tuple)
                         else self.__parse_type_params(node.slice)
                     ),
-                    type_vars=(),
                 )
 
     def parse(self, node: ast.AST) -> TypeInfo:
@@ -140,18 +173,30 @@ class _ExprParser(ast.NodeVisitor):
 
         self.__info = info
 
-    def __extract_module_info(self, node: ast.AST, parts: t.Sequence[str]) -> ModuleInfo:
+    def __extract_named_type_info(
+        self,
+        node: ast.AST,
+        parts: t.Sequence[str],
+        name: str,
+    ) -> NamedTypeInfo:
         if not parts:
-            return builtins_module_info()
+            return NamedTypeInfo(
+                name=name,
+                module=builtins_module_info(),
+            )
 
         for i in range(len(parts), 0, -1):
             module = ModuleInfo.build(*parts[:i])
             try:
                 self.__loader.load(module)
-            except ImportError:
+            except TypeLoaderError:
                 continue
             else:
-                return module
+                return NamedTypeInfo(
+                    name=name,
+                    module=module,
+                    namespace=tuple(parts[len(module.parts) :]),
+                )
 
         msg = "invalid module parts"
         raise ValueError(msg, parts, ast.dump(node))

@@ -1,3 +1,4 @@
+import enum
 import typing as t
 from dataclasses import dataclass
 
@@ -22,6 +23,11 @@ class StubX:
             pass
 
 
+class StubEnum(enum.Enum):
+    FOO = enum.auto()
+    BAR = enum.auto()
+
+
 class StubCM(t.ContextManager["StubCM"]):
     @override
     def __exit__(self, exc_type: object, exc_value: object, traceback: object, /) -> None:
@@ -38,5 +44,7 @@ StubInt = t.NewType("StubInt", int)
 
 StubUnionAlias: TypeAlias = t.Union[StubFoo, StubBar[StubInt], StubX]
 
+StubRecursive: TypeAlias = t.Union[T, t.Sequence["StubRecursive[T]"]]
+
 # TODO: enable after python 3.9, 3.10, 3.11 version support stop drop.
-#   type StubNumber = int | float  # noqa: ERA001
+#   type StubRecursive[T] = T | t.Sequence[StubRecursive[T]]  # noqa: ERA001

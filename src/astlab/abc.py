@@ -8,6 +8,7 @@ __all__ = [
     "Expr",
     "Stmt",
     "TypeDefinitionBuilder",
+    "TypeExpr",
     "TypeRef",
 ]
 
@@ -31,10 +32,6 @@ class ASTExpressionBuilder(metaclass=abc.ABCMeta):
     def build_expr(self) -> ast.expr:
         raise NotImplementedError
 
-    @abc.abstractmethod
-    def build_annotation(self) -> ast.expr:
-        raise NotImplementedError
-
 
 class ASTStatementBuilder(metaclass=abc.ABCMeta):
     @abc.abstractmethod
@@ -55,21 +52,13 @@ class TypeDefinitionBuilder(metaclass=abc.ABCMeta):
 
 Expr: TypeAlias = t.Union[ast.expr, ASTExpressionBuilder]
 Stmt: TypeAlias = t.Union[ast.stmt, ASTStatementBuilder, Expr]
-TypeRef: TypeAlias = t.Union[
-    Expr,
-    RuntimeType,
-    TypeInfo,
-    TypeDefinitionBuilder,
-]
+TypeRef: TypeAlias = t.Union[RuntimeType, TypeInfo, TypeDefinitionBuilder]
+TypeExpr: TypeAlias = t.Union[Expr, TypeRef]
 
 
 class ASTResolver(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def resolve_expr(self, ref: TypeRef, *tail: str) -> ast.expr:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def resolve_annotation(self, ref: TypeRef) -> ast.expr:
+    def resolve_expr(self, expr: TypeExpr, *tail: str) -> ast.expr:
         raise NotImplementedError
 
     @abc.abstractmethod

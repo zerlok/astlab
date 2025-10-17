@@ -3,38 +3,48 @@ import inspect
 import typing as t
 
 import pytest
-from _pytest.mark import ParameterSet
+from _pytest.mark import MarkDecorator, ParameterSet
 
 from astlab.builder import Comprehension, ModuleASTBuilder, build_module, build_package
 from astlab.reader import parse_module
-from astlab.types import none_type_info
+from astlab.types import none_type_info, predef
 
 _PARAMS: t.Final[list[ParameterSet]] = []
 
 
-def _to_module_param(func: t.Callable[[], ModuleASTBuilder]) -> ParameterSet:
-    expected_code = inspect.getdoc(func)
-    assert expected_code is not None
-
-    param = pytest.param(func(), parse_module(expected_code), id=func.__name__)
-    _PARAMS.append(param)
-
-    return param
+@pytest.mark.parametrize(("builder", "expected_code"), _PARAMS)
+def test_module_build(builder: t.Callable[[], ModuleASTBuilder], normalized_expected_code: str) -> None:
+    assert builder().render() == normalized_expected_code
 
 
-@pytest.mark.parametrize(("builder", "expected"), _PARAMS)
-def test_module_build(builder: ModuleASTBuilder, expected: ast.Module) -> None:
-    assert builder.render() == ast.unparse(expected)
+@pytest.fixture
+def normalized_expected_code(expected_code: str) -> str:
+    return ast.unparse(parse_module(expected_code))
 
 
-@_to_module_param
+def _to_param(
+    marks: t.Optional[t.Sequence[MarkDecorator]] = None,
+) -> t.Callable[[t.Callable[[], ModuleASTBuilder]], t.Callable[[], ModuleASTBuilder]]:
+    def inner(func: t.Callable[[], ModuleASTBuilder]) -> t.Callable[[], ModuleASTBuilder]:
+        expected_code = inspect.getdoc(func)
+        assert expected_code is not None
+
+        param = pytest.param(func, expected_code, id=func.__name__, marks=marks or [])
+        _PARAMS.append(param)
+
+        return func
+
+    return inner
+
+
+@_to_param()
 def build_empty_module() -> ModuleASTBuilder:
     """"""
     with build_module("simple") as mod:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_simple_module() -> ModuleASTBuilder:
     # noinspection PySingleQuotedDocstring
     '''
@@ -89,7 +99,7 @@ def build_simple_module() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_bar_impl_module() -> ModuleASTBuilder:
     """
     import builtins
@@ -124,7 +134,7 @@ def build_bar_impl_module() -> ModuleASTBuilder:
         return bar
 
 
-@_to_module_param
+@_to_param()
 def build_optionals() -> ModuleASTBuilder:
     """
     import builtins
@@ -135,6 +145,7 @@ def build_optionals() -> ModuleASTBuilder:
         my_optional_str: typing.Optional[builtins.str]
         my_optional_list_of_int: typing.Optional[builtins.list[builtins.int]]
         my_list_of_optional_int: builtins.list[typing.Optional[builtins.int]]
+        my_optional_str_default: typing.Optional[builtins.str] = None
     """
 
     with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
@@ -142,11 +153,12 @@ def build_optionals() -> ModuleASTBuilder:
         opt.field_def("my_optional_str", opt.type_ref(str).optional())
         opt.field_def("my_optional_list_of_int", opt.type_ref(int).list().optional())
         opt.field_def("my_list_of_optional_int", opt.type_ref(int).optional().list())
+        opt.field_def("my_optional_str_default", opt.type_ref(str).optional(), opt.none())
 
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_unions() -> ModuleASTBuilder:
     """
     import builtins
@@ -168,7 +180,7 @@ def build_unions() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_runtime_types() -> ModuleASTBuilder:
     """
     import builtins
@@ -185,7 +197,7 @@ def build_runtime_types() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_is_not_none_expr() -> ModuleASTBuilder:
     """
     maybe = body if test is not None else None
@@ -197,7 +209,7 @@ def build_is_not_none_expr() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_list_const() -> ModuleASTBuilder:
     """
     result = [1, 2, foo, bar]
@@ -209,7 +221,7 @@ def build_list_const() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_list_compr_expr() -> ModuleASTBuilder:
     """
     result = [item for target in iterable]
@@ -224,7 +236,7 @@ def build_list_compr_expr() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_try_except_else() -> ModuleASTBuilder:
     """
     import builtins
@@ -256,7 +268,7 @@ def build_try_except_else() -> ModuleASTBuilder:
         return mod
 
 
-@_to_module_param
+@_to_param()
 def build_index_slice() -> ModuleASTBuilder:
     """
     list[str]
@@ -277,5 +289,261 @@ def build_index_slice() -> ModuleASTBuilder:
             .slice(mod.const(2), mod.const(5))
         )
         mod.stmt(mod.attr("arr").index(mod.tuple_expr(mod.slice(), mod.slice(), mod.const(0))))
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info >= (3, 12)",
+            reason="new type var syntax can be used",
+        ),
+    ),
+)
+def build_generic_class_before_312() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    T = typing.TypeVar('T', bound=builtins.int)
+
+    class Node(typing.Generic[T]):
+        value: T
+        parent: typing.Optional['Node[T]'] = None
+    """
+
+    with build_module("generic") as mod:
+        with mod.class_def("Node") as node, node.type_var("T").lower(int) as type_var:
+            node.field_def("value", type_var)
+            node.field_def("parent", node.ref().type_params(type_var).optional(), mod.none())
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 12) or sys.version_info >= (3, 14)",
+            reason="type var syntax is available since python version 3.12",
+        ),
+    ),
+)
+def build_generic_class_312_313() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    class Node[T : builtins.int]:
+        value: T
+        parent: typing.Optional['Node[T]'] = None
+    """
+
+    with build_module("generic") as mod:
+        with mod.class_def("Node") as node, node.type_var("T").lower(int) as type_var:
+            node.field_def("value", type_var)
+            node.field_def("parent", node.ref().type_params(type_var).optional(), mod.none())
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 14)",
+            reason="type var syntax is available since python version 3.12 and forward ref is supported since 3.14",
+        ),
+    ),
+)
+def build_generic_class_after_314() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    class Node[T : builtins.int]:
+        value: T
+        parent: typing.Optional[Node[T]] = None
+    """
+
+    with build_module("generic") as mod:
+        with mod.class_def("Node") as node, node.type_var("T").lower(int) as type_var:
+            node.field_def("value", type_var)
+            node.field_def("parent", node.ref().type_params(type_var).optional(), mod.none())
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info >= (3, 12)",
+            reason="new type alias syntax can be used",
+        ),
+    ),
+)
+def build_type_alias_before_syntax_312() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    MyInt: typing.TypeAlias = builtins.int
+    Json: typing.TypeAlias = typing.Union[
+        None,
+        builtins.bool,
+        builtins.int,
+        builtins.float,
+        builtins.str,
+        builtins.list['Json'],
+        builtins.dict[builtins.str, 'Json'],
+    ]
+    T1 = typing.TypeVar('T1')
+    T2 = typing.TypeVar('T2')
+    Nested: typing.TypeAlias = typing.Union[T1, T2, typing.Sequence['Nested[T1, T2]']]
+    """
+
+    with build_module("alias") as mod:
+        mod.type_alias("MyInt").assign(predef().int)
+
+        with mod.type_alias("Json") as json_alias:
+            json_alias.assign(
+                json_alias.union_type(
+                    predef().none,
+                    predef().bool,
+                    predef().int,
+                    predef().float,
+                    predef().str,
+                    mod.list_type(json_alias),
+                    mod.dict_type(predef().str, json_alias),
+                )
+            )
+
+        with (
+            mod.type_alias("Nested") as nested_alias,
+            nested_alias.type_var("T1") as type_var_1,
+            nested_alias.type_var("T2") as type_var_2,
+        ):
+            nested_alias.assign(
+                nested_alias.union_type(
+                    type_var_1,
+                    type_var_2,
+                    nested_alias.sequence_type(nested_alias.type_params(type_var_1, type_var_2)),
+                )
+            )
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 12) or sys.version_info >= (3, 14)",
+            reason="type alias syntax is available since python version 3.12",
+        ),
+    ),
+)
+def build_type_alias_syntax_312() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    type MyInt = builtins.int
+    type Json = typing.Union[
+        None,
+        builtins.bool,
+        builtins.int,
+        builtins.float,
+        builtins.str,
+        builtins.list['Json'],
+        builtins.dict[builtins.str, 'Json']
+    ]
+    type Nested[T1, T2] = typing.Union[T1, T2, typing.Sequence['Nested[T1, T2]']]
+    """
+
+    with build_module("alias") as mod:
+        mod.type_alias("MyInt").assign(predef().int)
+
+        with mod.type_alias("Json") as json_alias:
+            json_alias.assign(
+                json_alias.union_type(
+                    predef().none,
+                    predef().bool,
+                    predef().int,
+                    predef().float,
+                    predef().str,
+                    mod.list_type(json_alias),
+                    mod.dict_type(predef().str, json_alias),
+                )
+            )
+
+        with (
+            mod.type_alias("Nested") as nested_alias,
+            nested_alias.type_var("T1") as type_var_1,
+            nested_alias.type_var("T2") as type_var_2,
+        ):
+            nested_alias.assign(
+                nested_alias.union_type(
+                    type_var_1,
+                    type_var_2,
+                    nested_alias.sequence_type(nested_alias.type_params(type_var_1, type_var_2)),
+                )
+            )
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 14)",
+            reason="type alias syntax is available since python version 3.12 and forward ref is supported since 3.14",
+        ),
+    ),
+)
+def build_type_alias_syntax_314() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    type MyInt = builtins.int
+    type Json = typing.Union[
+        None,
+        builtins.bool,
+        builtins.int,
+        builtins.float,
+        builtins.str,
+        builtins.list[Json],
+        builtins.dict[builtins.str, Json]
+    ]
+    type Nested[T1, T2] = typing.Union[T1, T2, typing.Sequence[Nested[T1, T2]]]
+    """
+
+    with build_module("alias") as mod:
+        mod.type_alias("MyInt").assign(predef().int)
+
+        with mod.type_alias("Json") as json_alias:
+            json_alias.assign(
+                json_alias.union_type(
+                    predef().none,
+                    predef().bool,
+                    predef().int,
+                    predef().float,
+                    predef().str,
+                    mod.list_type(json_alias),
+                    mod.dict_type(predef().str, json_alias),
+                )
+            )
+
+        with (
+            mod.type_alias("Nested") as nested_alias,
+            nested_alias.type_var("T1") as type_var_1,
+            nested_alias.type_var("T2") as type_var_2,
+        ):
+            nested_alias.assign(
+                nested_alias.union_type(
+                    type_var_1,
+                    type_var_2,
+                    nested_alias.sequence_type(nested_alias.type_params(type_var_1, type_var_2)),
+                )
+            )
 
         return mod

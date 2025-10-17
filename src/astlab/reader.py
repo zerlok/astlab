@@ -38,7 +38,12 @@ def import_module_path(path: Path) -> ModuleType:
     # Avoid `.py` in last part.
     qualname = ".".join((*relpath.parts[:-1], relpath.stem))
 
-    return importlib.import_module(qualname)
+    try:
+        return importlib.import_module(qualname)
+
+    except ImportError as err:
+        msg = "can't import module from path"
+        raise ImportError(msg, path) from err
 
 
 def _get_rel_path_parts_count(args: tuple[Path, Path]) -> int:

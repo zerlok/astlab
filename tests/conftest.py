@@ -30,8 +30,8 @@ def type_loader() -> TypeLoader:
 
 
 @pytest.fixture
-def type_annotator(module_loader: ModuleLoader) -> TypeAnnotator:
-    return TypeAnnotator(module_loader)
+def type_annotator(type_loader: TypeLoader) -> TypeAnnotator:
+    return TypeAnnotator(type_loader)
 
 
 @pytest.fixture
