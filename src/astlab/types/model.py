@@ -245,7 +245,7 @@ class LiteralTypeInfo:
         return ".".join(self.parts)
 
 
-@dataclass(frozen=True, kw_only=True)
+@dataclass(frozen=True)
 class EnumTypeValue:
     name: str
     value: LiteralTypeValue

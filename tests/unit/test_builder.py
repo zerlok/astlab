@@ -303,9 +303,10 @@ def build_index_slice() -> ModuleASTBuilder:
 )
 def build_generic_class_before_312() -> ModuleASTBuilder:
     """
+    import builtins
     import typing
 
-    T = typing.TypeVar('T')
+    T = typing.TypeVar('T', bound=builtins.int)
 
     class Node(typing.Generic[T]):
         value: T
@@ -313,7 +314,7 @@ def build_generic_class_before_312() -> ModuleASTBuilder:
     """
 
     with build_module("generic") as mod:
-        with mod.class_def("Node") as node, node.type_var("T") as type_var:
+        with mod.class_def("Node") as node, node.type_var("T").lower(int) as type_var:
             node.field_def("value", type_var)
             node.field_def("parent", node.ref().type_params(type_var))
 
@@ -338,7 +339,7 @@ def build_generic_class_after_312() -> ModuleASTBuilder:
     """
 
     with build_module("generic") as mod:
-        with mod.class_def("Node") as node, node.type_var("T").lower(predef().int) as type_var:
+        with mod.class_def("Node") as node, node.type_var("T").lower(int) as type_var:
             node.field_def("value", type_var)
             node.field_def("parent", node.ref().type_params(type_var))
 

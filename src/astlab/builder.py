@@ -584,7 +584,7 @@ class TypeRefBuilder(_BaseBuilder, ASTExpressionBuilder):
             context: BuildContext,
             info: TypeInfo,
         ) -> Expr:
-            return self._scope.subscript(inner(context, info), self._scope.tuple_type(*params, normalize=True))
+            return self._scope.subscript(inner(context, info), *params)
 
         return self.__wrap(transform)
 
@@ -705,9 +705,6 @@ class AnnotationASTBuilder(_BaseBuilder):
             predef().async_context_manager if is_async else predef().context_manager,
             of_type,
         )
-
-    def _on_expression(self, expr: Expr) -> None:
-        pass
 
 
 @dataclass(frozen=True)
@@ -957,8 +954,11 @@ class ScopeASTBuilder(AnnotationASTBuilder):
         return CallASTBuilder(self._context, func, args, kwargs)
 
     @_ast_expr_builder
-    def subscript(self, value: TypeRef, slice_: Expr) -> Expr:
-        return ast.Subscript(value=self._normalize_expr(value), slice=self._normalize_expr(slice_))
+    def subscript(self, value: TypeRef, *slice_: TypeRef) -> Expr:
+        return ast.Subscript(
+            value=self._normalize_expr(value),
+            slice=self._normalize_expr(self.tuple_expr(*slice_, normalize=True)),
+        )
 
     @_ast_expr_builder
     def slice(
@@ -1331,14 +1331,16 @@ class TypeVarBuilder(_BaseBuilder, ASTStatementBuilder):
         context: BuildContext,
         name: str,
         variance: t.Optional[TypeVarVariance] = None,
-        lower: t.Optional[t.Sequence[TypeRef]] = None,
+        constraints: t.Optional[t.Sequence[TypeRef]] = None,
+        lower: t.Optional[TypeRef] = None,
     ) -> None:
         super().__init__(context)
         self.__name = name
         self.__module = self._context.module
         self.__namespace = self._context.namespace
         self.__variance = variance
-        self.__lower = lower or []
+        self.__constraints = list[TypeRef](constraints or ())
+        self.__lower = lower
 
     def __enter__(self) -> TypeRef:
         return NamedTypeInfo(
@@ -1362,36 +1364,38 @@ class TypeVarBuilder(_BaseBuilder, ASTStatementBuilder):
         self.__variance = "contravariant"
         return self
 
-    def lower(self, *types: TypeRef) -> Self:
-        self.__lower = types
+    def constraints(self, *types: TypeRef) -> Self:
+        self.__constraints.extend(types)
+        return self
+
+    def lower(self, type_: TypeRef) -> Self:
+        self.__lower = type_
         return self
 
     @override
     def build_stmt(self) -> t.Sequence[ast.stmt]:
+        args: list[ast.expr] = [ast.Constant(value=self.__name)]
+        keywords = list[ast.keyword]()
+
+        if self.__variance is None or self.__variance == "invariant":
+            pass
+        elif self.__variance == "covariant":
+            keywords.append(ast.keyword(arg="covariant", value=ast.Constant(value=True)))
+        elif self.__variance == "contravariant":
+            keywords.append(ast.keyword(arg="contravariant", value=ast.Constant(value=True)))
+        else:
+            assert_never(self.__variance)
+
+        if self.__lower is not None:
+            keywords.append(ast.keyword(arg="bound", value=self._normalize_expr(self.__lower)))
+
         return [
             ast.Assign(
                 targets=[ast.Name(id=self.__name)],
                 value=ast.Call(
                     func=self._normalize_expr(predef().type_var),
-                    args=[ast.Constant(self.__name)],
-                    keywords=[
-                        ast.keyword(
-                            arg="covariant",
-                            value=ast.Constant(value=self.__variance == "covariant"),
-                        ),
-                        ast.keyword(
-                            arg="contravariant",
-                            value=ast.Constant(value=self.__variance == "contravariant"),
-                        ),
-                        ast.keyword(
-                            arg="bound",
-                            value=self._normalize_expr(
-                                self._scope.union_type(*self.__lower, normalize=True)
-                                if self.__lower
-                                else self._scope.none()
-                            ),
-                        ),
-                    ],
+                    args=args,
+                    keywords=keywords,
                 ),
                 lineno=0,
             ),
@@ -1403,13 +1407,11 @@ class TypeVarBuilder(_BaseBuilder, ASTStatementBuilder):
         def build_type_param(self) -> ast.type_param:
             return ast.TypeVar(
                 name=self.__name,
-                bound=self._normalize_expr(self._scope.union_type(*self.__lower, normalize=True))
-                if self.__lower
-                else None,
+                bound=self._normalize_expr(self.__lower) if self.__lower is not None else None,
             )
 
 
-class TypeAliasDefinitionBuilder(AnnotationASTBuilder, TypeDefinitionBuilder, ASTStatementBuilder):
+class TypeAliasExpressionBuilder(AnnotationASTBuilder, TypeDefinitionBuilder, ASTStatementBuilder):
     def __init__(self, context: BuildContext, info: NamedTypeInfo) -> None:
         super().__init__(context)
         self.__info = info
@@ -1438,6 +1440,7 @@ class TypeAliasDefinitionBuilder(AnnotationASTBuilder, TypeDefinitionBuilder, AS
 
     # NOTE: workaround for passing mypy typings in CI for python 3.12
     if sys.version_info >= (3, 12):
+        # if False:
 
         @override
         def build_stmt(self) -> t.Sequence[ast.stmt]:
@@ -1465,7 +1468,6 @@ class TypeAliasDefinitionBuilder(AnnotationASTBuilder, TypeDefinitionBuilder, AS
             stmts.append(
                 ast.AnnAssign(
                     target=ast.Name(id=self.__info.name),
-                    # TODO: add typing.TypeAlias
                     annotation=self._normalize_annotation(predef().type_alias),
                     value=self._normalize_expr(self.__expr),
                     simple=1,
@@ -1475,15 +1477,13 @@ class TypeAliasDefinitionBuilder(AnnotationASTBuilder, TypeDefinitionBuilder, AS
             return stmts
 
 
-class TypeAliasStatementASTBuilder(_BaseBuilder, ASTStatementBuilder):
+class TypeAliasStatementASTBuilder(_BaseBuilder, ASTStatementBuilder, TypeDefinitionBuilder):
     def __init__(self, context: BuildContext, name: str) -> None:
         super().__init__(context)
-        self.__annotation = TypeAliasDefinitionBuilder(
-            context=self._context,
-            info=NamedTypeInfo(name=name, module=self._context.module, namespace=self._context.namespace),
-        )
+        self.__info = NamedTypeInfo(name=name, module=self._context.module, namespace=self._context.namespace)
+        self.__annotation = TypeAliasExpressionBuilder(context=self._context, info=self.__info)
 
-    def __enter__(self) -> TypeAliasDefinitionBuilder:
+    def __enter__(self) -> TypeAliasExpressionBuilder:
         self._context.enter_scope(self.__annotation.info.name, [])
         return self.__annotation
 
@@ -1491,6 +1491,15 @@ class TypeAliasStatementASTBuilder(_BaseBuilder, ASTStatementBuilder):
         if exc_type is None:
             self._context.leave_scope()
             self._context.extend_body(self.build_stmt())
+
+    @override
+    @property
+    def info(self) -> TypeInfo:
+        return self.__info
+
+    @override
+    def ref(self) -> ASTExpressionBuilder:
+        return TypeRefBuilder(self._context, self.__info)
 
     def assign(self, expr: TypeRef) -> None:
         self.__annotation.assign(expr)

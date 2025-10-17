@@ -36,40 +36,17 @@ class TypeAnnotator:
         self.__loader = loader or TypeLoader()
 
     @lru_cache_method()
-    def annotate(self, info: TypeInfo) -> str:
-        if isinstance(info, ModuleInfo):
-            annotation = "builtins.module"
+    def annotate(self, info: TypeInfo, *, qualified: bool = True) -> str:
+        if info == none_type_info():
+            return "None"
 
-        elif isinstance(info, TypeVarInfo):
-            annotation = info.name
+        if info == ellipsis_type_info():
+            return "..."
 
-        elif isinstance(info, NamedTypeInfo):
-            if info == none_type_info():
-                annotation = "None"
+        annotation = self.__annotate(info)
+        return ".".join((*info.parts[:-1], annotation)) if qualified else annotation
 
-            elif info == ellipsis_type_info():
-                annotation = "..."
-
-            elif info.type_params:
-                # TODO: fix recursive type
-                params = ", ".join(self.annotate(tp) for tp in info.type_params)
-                annotation = f"{info.qualname}[{params}]"
-
-            else:
-                annotation = info.qualname
-
-        elif isinstance(info, LiteralTypeInfo):
-            vals = ", ".join(repr(v) for v in info.values)
-            annotation = f"typing.Literal[{vals}]"
-
-        elif isinstance(info, EnumTypeInfo):
-            annotation = info.qualname
-
-        else:
-            assert_never(info)
-
-        return annotation
-
+    @lru_cache_method()
     def parse(self, qualname: str) -> TypeInfo:
         node = ast.parse(qualname)
 
@@ -78,6 +55,33 @@ class TypeAnnotator:
             raise ValueError(msg, qualname)
 
         return _ExprParser(self.__loader).parse(node)
+
+    def __annotate(self, info: TypeInfo) -> str:
+        if isinstance(info, ModuleInfo):
+            annotation = "module"
+
+        elif isinstance(info, TypeVarInfo):
+            annotation = info.name
+
+        elif isinstance(info, NamedTypeInfo):
+            annotation = info.name
+
+            if info.type_params:
+                # TODO: fix recursive type
+                params = ", ".join(self.annotate(tp) for tp in info.type_params)
+                annotation = f"{annotation}[{params}]"
+
+        elif isinstance(info, LiteralTypeInfo):
+            vals = ", ".join(repr(v) for v in info.values)
+            annotation = f"Literal[{vals}]"
+
+        elif isinstance(info, EnumTypeInfo):
+            annotation = info.name
+
+        else:
+            assert_never(info)
+
+        return annotation
 
 
 class _ExprParser(ast.NodeVisitor):
