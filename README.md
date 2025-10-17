@@ -7,18 +7,17 @@
 [![Downloads](https://img.shields.io/pypi/dm/astlab.svg)](https://pypistats.org/packages/astlab)
 [![GitHub stars](https://img.shields.io/github/stars/zerlok/astlab)](https://github.com/zerlok/astlab/stargazers)
 
-**astlab** is a Python library that provides an intuitive API for building and manipulating Abstract Syntax Trees (ASTs) to generate Python code. With **astlab**, you can easily create Python modules, classes, fields, and more using a simple and readable syntax, and convert the AST back into executable Python code.
+**astlab** is a Python library that provides an intuitive API for building and manipulating Abstract Syntax Trees (ASTs) to generate Python code. With **astlab**, you can easily construct Python modules, classes, functions, type aliases, and generics using a fluent API — then render them into valid, executable Python code.
 
 ## Features
 
-- **Easy AST construction**: Build Python code using a fluent and intuitive API.
-- **Code generation**: Convert your AST into valid Python code, forget about jinja templates.
-- **Supports nested scopes & auto imports**: Create nested classes, methods, and fields effortlessly. Reference types from other modules easily.
-- **Highly customizable**: Extend and modify the API to suit your needs.
+* **Easy AST construction**: Build Python code using a fluent, structured API.
+* **Code generation**: Generate fully valid, formatted Python source without templates.
+* **Supports nested scopes & auto imports**: Create classes, methods, and nested modules with automatic import resolution.
+* **Type system support**: Define and use **type variables**, **generic classes**, and **type aliases** compatible with Python 3.9–3.14 syntax.
+* **Highly customizable**: Extend the builder model for any Python AST use case.
 
 ## Installation
-
-You can install **astlab** from PyPI using `pip`:
 
 ```bash
 pip install astlab
@@ -26,30 +25,21 @@ pip install astlab
 
 ## Usage
 
-### Simple example
-
-Here's a basic example of how to use **astlab** to create a Python module with a dataclass.
+### Simple Example
 
 ```python
 import ast
 import astlab
 
-# Create a new Python module
 with astlab.module("foo") as foo:
-    # Build a "Bar" dataclass
     with foo.class_def("Bar").dataclass() as bar:
-        # Define a field "spam" of type int
         bar.field_def("spam", int)
 
-# Generate and print the Python code from the AST
 print(foo.render())
-# Or you can just get the AST
 print(ast.dump(foo.build(), indent=4))
 ```
 
 #### Output
-
-Render:
 
 ```python
 import builtins
@@ -60,39 +50,9 @@ class Bar:
     spam: builtins.int
 ```
 
-Dump built AST:
+---
 
-```python
-Module(
-    body=[
-        Import(
-            names=[
-                alias(name='builtins')]),
-        Import(
-            names=[
-                alias(name='dataclasses')]),
-        ClassDef(
-            name='Bar',
-            bases=[],
-            keywords=[],
-            body=[
-                AnnAssign(
-                    target=Name(id='spam'),
-                    annotation=Attribute(
-                        value=Name(id='builtins'),
-                        attr='int'),
-                    simple=1)],
-            decorator_list=[
-                Call(
-                    func=Attribute(
-                        value=Name(id='dataclasses'),
-                        attr='dataclass'),
-                    args=[],
-                    keywords=[])])],
-    type_ignores=[])
-```
-
-### Func def & call example
+### Function Definition & Call Example
 
 ```python
 import astlab
@@ -118,7 +78,9 @@ class Bar:
         return result
 ```
 
-### Type reference example
+---
+
+### Type Reference Example
 
 ```python
 import astlab
@@ -146,4 +108,127 @@ class Eggs(main.foo.Bar):
 
     def do_stuff(self) -> typing.Optional[main.foo.Bar]:
         pass
+```
+
+---
+
+### Generics and Type Variables
+
+**astlab** supports defining type variables and generic classes.
+Both the legacy (`typing.TypeVar`) and modern (`class Node[T: int]`) syntaxes are supported depending on Python version.
+
+#### Example
+
+```python
+import astlab
+
+with astlab.module("generic") as mod:
+    with mod.class_def("Node") as node, node.type_var("T").lower(int) as T:
+        node.field_def("value", T)
+        node.field_def("parent", node.ref().type_params(T))
+
+print(mod.render())
+```
+
+#### Output (python < 3.12)
+
+```python
+import builtins
+import typing
+
+T = typing.TypeVar('T', bound=builtins.int)
+
+class Node(typing.Generic[T]):
+    value: T
+    parent: 'Node[T]'
+```
+
+#### Output (python ≥ 3.12)
+
+```python
+import builtins
+
+class Node[T: builtins.int]:
+    value: T
+    parent: Node[T]
+```
+
+---
+
+### Type Aliases
+
+**astlab** allows declarative creation of type aliases, including recursive and generic aliases.
+It automatically emits valid syntax for both `typing.TypeAlias` (pre-3.12) and `type X = Y` (3.12+).
+
+#### Example
+
+```python
+import astlab
+from astlab.types import predef
+
+with astlab.module("alias") as mod:
+    mod.type_alias("MyInt").assign(int)
+
+    with mod.type_alias("Json") as json_alias:
+        json_alias.assign(
+            json_alias.union_type(
+                None,
+                bool,
+                int,
+                float,
+                str,
+                mod.list_type(json_alias),
+                mod.dict_type(str, json_alias),
+            )
+        )
+
+    with (
+        mod.type_alias("Nested") as nested_alias,
+        nested_alias.type_var("T") as T,
+    ):
+        nested_alias.assign(
+            nested_alias.union_type(
+                T
+                nested_alias.sequence_type(nested_alias.type_params(T)),
+            )
+        )
+```
+
+#### Output (python < 3.12)
+
+```python
+import builtins
+import typing
+
+MyInt: typing.TypeAlias = builtins.int
+Json: typing.TypeAlias = typing.Union[
+    None,
+    builtins.bool,
+    builtins.int,
+    builtins.float,
+    builtins.str,
+    builtins.list['Json'],
+    builtins.dict[builtins.str, 'Json'],
+]
+T = typing.TypeVar("T")
+Nested: typing.TypeAlias = typing.Union[T, typing.Sequence['Nested[T]']]
+```
+
+#### Output (python ≥ 3.12)
+
+```python
+import builtins
+import typing
+
+type MyInt = builtins.int
+type Json = typing.Union[
+    None,
+    builtins.bool,
+    builtins.int,
+    builtins.float,
+    builtins.str,
+    builtins.list[Json],
+    builtins.dict[builtins.str, Json],
+]
+type Nested[T] = typing.Union[T, typing.Sequence[Nested[T]]]
 ```
