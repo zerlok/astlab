@@ -11,7 +11,7 @@ from dataclasses import replace
 from itertools import chain
 
 from astlab._typing import assert_never, override
-from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefinitionBuilder, TypeRef
+from astlab.abc import ASTExpressionBuilder, ASTResolver, ASTStatementBuilder, Stmt, TypeDefinitionBuilder, TypeExpr
 from astlab.traverse import traverse_dfs_post_order
 from astlab.types import (
     LiteralTypeInfo,
@@ -39,40 +39,19 @@ class DefaultASTResolver(ASTResolver):
         self.__annotator = annotator if annotator is not None else TypeAnnotator()
 
     @override
-    def resolve_expr(self, ref: TypeRef, *tail: str) -> ast.expr:
-        if isinstance(ref, ast.expr):
-            return self.__chain_attr(ref, *tail)
+    def resolve_expr(self, expr: TypeExpr, *tail: str) -> ast.expr:
+        if isinstance(expr, ast.expr):
+            return self.__chain_attr(expr, *tail)
 
-        elif isinstance(ref, ASTExpressionBuilder):
-            return self.__chain_attr(ref.build_expr(), *tail)
+        elif isinstance(expr, ASTExpressionBuilder):
+            return self.__chain_attr(expr.build_expr(), *tail)
 
-        elif isinstance(ref, (TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo)):
-            return self.__resolve_info(ref, tail)
-
-        elif isinstance(ref, TypeDefinitionBuilder):
-            return self.__resolve_info(ref.info, tail)
+        elif isinstance(expr, TypeDefinitionBuilder):
+            return self.__resolve_info(expr.info, tail)
 
         else:
-            info = self.__inspector.inspect(ref)
+            info = self.__inspector.inspect(expr)
             return self.__resolve_info(info, tail)
-
-    @override
-    def resolve_annotation(self, ref: TypeRef) -> ast.expr:
-        if isinstance(ref, ast.expr):
-            return ref
-
-        elif isinstance(ref, ASTExpressionBuilder):
-            return ref.build_annotation()
-
-        elif isinstance(ref, (TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo)):
-            return self.__resolve_info(ref)
-
-        elif isinstance(ref, TypeDefinitionBuilder):
-            return self.__resolve_info(ref.info)
-
-        else:
-            info = self.__inspector.inspect(ref)
-            return self.__resolve_info(info)
 
     @override
     def resolve_stmts(
@@ -114,7 +93,6 @@ class DefaultASTResolver(ASTResolver):
 
     def __resolve_info(self, root: TypeInfo, tail: t.Sequence[str] = ()) -> ast.expr:
         nodes = dict[TypeInfo, ast.expr]()
-        # forward_refs = dict[TypeInfo, bool]()
 
         node: ast.expr
 

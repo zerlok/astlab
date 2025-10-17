@@ -31,7 +31,10 @@ class TypeInspector:
     """Provides type info from runtime type."""
 
     @lru_cache_method()
-    def inspect(self, type_: RuntimeType) -> TypeInfo:
+    def inspect(self, type_: t.Union[TypeInfo, RuntimeType]) -> TypeInfo:
+        if isinstance(type_, (ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo)):
+            return type_
+
         if isinstance(
             type_,
             t._LiteralGenericAlias,  # type: ignore[attr-defined] # noqa: SLF001

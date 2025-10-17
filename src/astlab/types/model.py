@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 import typing as t
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cache, cached_property
 from pathlib import Path
 from types import GenericAlias, ModuleType
@@ -205,6 +205,9 @@ class NamedTypeInfo:
     @cached_property
     def qualname(self) -> str:
         return ".".join(self.parts)
+
+    def with_type_params(self, *type_params: TypeInfo) -> NamedTypeInfo:
+        return replace(self, type_params=type_params)
 
 
 @cache  # type: ignore[misc]
