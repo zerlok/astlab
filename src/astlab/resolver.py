@@ -94,22 +94,19 @@ class DefaultASTResolver(ASTResolver):
     def __resolve_info(self, root: TypeInfo, tail: t.Sequence[str] = ()) -> ast.expr:
         nodes = dict[TypeInfo, ast.expr]()
 
-        node: ast.expr
-
         for info in traverse_dfs_post_order(root, self.__get_children):
             resolved_info = self.__resolve_dependency(info)
 
-            if self.__is_forward_ref(resolved_info):
-                node = ast.Constant(value=self.__annotator.annotate(resolved_info, qualified=False))
+            node = self.__build_expr(resolved_info)
+            if isinstance(info, NamedTypeInfo) and info.type_params:
+                params = [nodes[tp] for tp in info.type_params]
+                node = ast.Subscript(
+                    value=node,
+                    slice=ast.Tuple(elts=params) if len(params) > 1 else params[0],
+                )
 
-            else:
-                node = self.__build_expr(resolved_info)
-                if isinstance(info, NamedTypeInfo) and info.type_params:
-                    params = [nodes[tp] for tp in info.type_params]
-                    node = ast.Subscript(
-                        value=node,
-                        slice=ast.Tuple(elts=params) if len(params) > 1 else params[0],
-                    )
+            if self.__is_forward_ref(resolved_info):
+                node = ast.Constant(value=ast.unparse(node))
 
             nodes[info] = node
 
@@ -160,12 +157,19 @@ class DefaultASTResolver(ASTResolver):
 
         return self.__chain_attr(ast.Name(id=head), *tail)
 
-    def __is_forward_ref(self, info: TypeInfo) -> bool:
-        return (
-            sys.version_info < (3, 12)
-            and info.module == self.__module
-            and (*info.namespace, info.name) == self.__namespace
-        )
+    if sys.version_info >= (3, 12):
+
+        def __is_forward_ref(self, _: TypeInfo) -> bool:
+            return False
+
+    else:
+
+        def __is_forward_ref(self, info: TypeInfo) -> bool:
+            return (
+                not isinstance(info, ModuleInfo)
+                and info.module == self.__module
+                and (*info.namespace, info.name) == self.__namespace
+            )
 
     def __chain_attr(self, expr: ast.expr, *tail: str) -> ast.expr:
         for attr in tail:

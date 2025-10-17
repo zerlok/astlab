@@ -369,6 +369,9 @@ def build_type_alias_before_syntax_312() -> ModuleASTBuilder:
         builtins.list['Json'],
         builtins.dict[builtins.str, 'Json'],
     ]
+    T1 = typing.TypeVar('T1')
+    T2 = typing.TypeVar('T2')
+    Nested: typing.TypeAlias = typing.Union[T1, T2, typing.Sequence['Nested[T1, T2]']]
     """
 
     with build_module("alias") as mod:

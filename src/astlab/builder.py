@@ -1305,7 +1305,7 @@ class TryStatementASTBuilder(_NestedBlockASTBuilder):
         ]
 
 
-class TypeVarBuilder(_BaseBuilder, ASTStatementBuilder):
+class TypeVarBuilder(_BaseBuilder, TypeDefinitionBuilder, ASTStatementBuilder):
     def __init__(
         self,
         context: BuildContext,
@@ -1317,20 +1317,31 @@ class TypeVarBuilder(_BaseBuilder, ASTStatementBuilder):
         super().__init__(context)
         self.__name = name
         self.__module = self._context.module
-        self.__namespace = self._context.namespace
+        self.__namespace = self._context.namespace if sys.version_info >= (3, 12) else self._context.namespace[:-1]
         self.__variance = variance
         self.__constraints = list[TypeExpr](constraints or ())
         self.__lower = lower
 
-    def __enter__(self) -> TypeExpr:
-        return NamedTypeInfo(
+        self.__info = NamedTypeInfo(
             name=self.__name,
             module=self.__module,
             namespace=self.__namespace,
         )
 
+    def __enter__(self) -> TypeInfo:
+        return self.__info
+
     def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         pass
+
+    @override
+    @property
+    def info(self) -> TypeInfo:
+        return self.__info
+
+    @override
+    def ref(self) -> ASTExpressionBuilder:
+        return TypeRefBuilder(self._context, self.__info)
 
     def invariant(self) -> Self:
         self.__variance = "invariant"
@@ -1420,7 +1431,6 @@ class TypeAliasExpressionBuilder(AnnotationASTBuilder, TypeDefinitionBuilder, AS
 
     # NOTE: workaround for passing mypy typings in CI for python 3.12
     if sys.version_info >= (3, 12):
-        # if False:
 
         @override
         def build_stmt(self) -> t.Sequence[ast.stmt]:
@@ -1669,8 +1679,7 @@ class ClassStatementASTBuilder(
             stmts = [stmt for tv in self.__type_vars for stmt in tv.build_stmt()]
 
             if self.__type_vars:
-                # TODO: add type params to generic
-                self.__bases.insert(0, predef().generic)
+                self.__bases.insert(0, predef().generic.with_type_params(*(tv.info for tv in self.__type_vars)))
 
             stmts.append(
                 ast.ClassDef(
