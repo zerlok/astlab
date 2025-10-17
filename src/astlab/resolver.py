@@ -157,7 +157,7 @@ class DefaultASTResolver(ASTResolver):
 
         return self.__chain_attr(ast.Name(id=head), *tail)
 
-    if sys.version_info >= (3, 12):
+    if sys.version_info >= (3, 14):
 
         def __is_forward_ref(self, _: TypeInfo) -> bool:
             return False

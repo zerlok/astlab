@@ -297,7 +297,7 @@ def build_index_slice() -> ModuleASTBuilder:
     marks=(
         pytest.mark.skipif(
             condition="sys.version_info >= (3, 12)",
-            reason="syntax `type XXX = YYY` was introduced since python version 3.12",
+            reason="new type var syntax can be used",
         ),
     ),
 )
@@ -310,13 +310,13 @@ def build_generic_class_before_312() -> ModuleASTBuilder:
 
     class Node(typing.Generic[T]):
         value: T
-        parent: 'Node[T]'
+        parent: typing.Optional['Node[T]'] = None
     """
 
     with build_module("generic") as mod:
         with mod.class_def("Node") as node, node.type_var("T").lower(int) as type_var:
             node.field_def("value", type_var)
-            node.field_def("parent", node.ref().type_params(type_var))
+            node.field_def("parent", node.ref().type_params(type_var).optional(), mod.none())
 
         return mod
 
@@ -324,24 +324,51 @@ def build_generic_class_before_312() -> ModuleASTBuilder:
 @_to_param(
     marks=(
         pytest.mark.skipif(
-            condition="sys.version_info < (3, 12)",
-            reason="syntax `type XXX = YYY` was introduced since python version 3.12",
+            condition="sys.version_info < (3, 12) or sys.version_info >= (3, 14)",
+            reason="type var syntax is available since python version 3.12",
         ),
     ),
 )
-def build_generic_class_after_312() -> ModuleASTBuilder:
+def build_generic_class_312_313() -> ModuleASTBuilder:
     """
     import builtins
+    import typing
 
     class Node[T : builtins.int]:
         value: T
-        parent: Node[T]
+        parent: typing.Optional['Node[T]'] = None
     """
 
     with build_module("generic") as mod:
         with mod.class_def("Node") as node, node.type_var("T").lower(int) as type_var:
             node.field_def("value", type_var)
-            node.field_def("parent", node.ref().type_params(type_var))
+            node.field_def("parent", node.ref().type_params(type_var).optional(), mod.none())
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 14)",
+            reason="type var syntax is available since python version 3.12 and forward ref is supported since 3.14",
+        ),
+    ),
+)
+def build_generic_class_after_314() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    class Node[T : builtins.int]:
+        value: T
+        parent: typing.Optional[Node[T]] = None
+    """
+
+    with build_module("generic") as mod:
+        with mod.class_def("Node") as node, node.type_var("T").lower(int) as type_var:
+            node.field_def("value", type_var)
+            node.field_def("parent", node.ref().type_params(type_var).optional(), mod.none())
 
         return mod
 
@@ -350,7 +377,7 @@ def build_generic_class_after_312() -> ModuleASTBuilder:
     marks=(
         pytest.mark.skipif(
             condition="sys.version_info >= (3, 12)",
-            reason="syntax `type XXX = YYY` was introduced since python version 3.12",
+            reason="new type alias syntax can be used",
         ),
     ),
 )
@@ -409,12 +436,70 @@ def build_type_alias_before_syntax_312() -> ModuleASTBuilder:
 @_to_param(
     marks=(
         pytest.mark.skipif(
-            condition="sys.version_info < (3, 12)",
-            reason="syntax `type XXX = YYY` was introduced since python version 3.12",
+            condition="sys.version_info < (3, 12) or sys.version_info >= (3, 14)",
+            reason="type alias syntax is available since python version 3.12",
         ),
     ),
 )
 def build_type_alias_syntax_312() -> ModuleASTBuilder:
+    """
+    import builtins
+    import typing
+
+    type MyInt = builtins.int
+    type Json = typing.Union[
+        None,
+        builtins.bool,
+        builtins.int,
+        builtins.float,
+        builtins.str,
+        builtins.list['Json'],
+        builtins.dict[builtins.str, 'Json']
+    ]
+    type Nested[T1, T2] = typing.Union[T1, T2, typing.Sequence['Nested[T1, T2]']]
+    """
+
+    with build_module("alias") as mod:
+        mod.type_alias("MyInt").assign(predef().int)
+
+        with mod.type_alias("Json") as json_alias:
+            json_alias.assign(
+                json_alias.union_type(
+                    predef().none,
+                    predef().bool,
+                    predef().int,
+                    predef().float,
+                    predef().str,
+                    mod.list_type(json_alias),
+                    mod.dict_type(predef().str, json_alias),
+                )
+            )
+
+        with (
+            mod.type_alias("Nested") as nested_alias,
+            nested_alias.type_var("T1") as type_var_1,
+            nested_alias.type_var("T2") as type_var_2,
+        ):
+            nested_alias.assign(
+                nested_alias.union_type(
+                    type_var_1,
+                    type_var_2,
+                    nested_alias.sequence_type(nested_alias.type_params(type_var_1, type_var_2)),
+                )
+            )
+
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 14)",
+            reason="type alias syntax is available since python version 3.12 and forward ref is supported since 3.14",
+        ),
+    ),
+)
+def build_type_alias_syntax_314() -> ModuleASTBuilder:
     """
     import builtins
     import typing
