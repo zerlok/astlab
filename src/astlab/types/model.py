@@ -12,6 +12,7 @@ __all__ = [
     "TypeInfo",
     "TypeVarInfo",
     "TypeVarVariance",
+    "UnionTypeInfo",
     "builtins_module_info",
     "ellipsis_type_info",
     "none_type_info",
@@ -144,6 +145,11 @@ def builtins_module_info() -> ModuleInfo:
 
 
 @cache  # type: ignore[misc]
+def types_module_info() -> ModuleInfo:
+    return ModuleInfo("types")
+
+
+@cache  # type: ignore[misc]
 def typing_module_info() -> ModuleInfo:
     return ModuleInfo("typing")
 
@@ -187,7 +193,7 @@ class NamedTypeInfo:
             msg = "type name can't be empty"
             raise ValueError(msg, name)
 
-        return NamedTypeInfo(
+        return cls(
             name=type_name,
             module=module
             if isinstance(module, ModuleInfo)
@@ -273,7 +279,7 @@ class EnumTypeInfo:
             msg = "type name can't be empty"
             raise ValueError(msg, name)
 
-        return EnumTypeInfo(
+        return cls(
             name=type_name,
             module=module
             if isinstance(module, ModuleInfo)
@@ -293,4 +299,33 @@ class EnumTypeInfo:
         return ".".join(self.parts)
 
 
-TypeInfo: TypeAlias = t.Union[ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo]
+@dataclass(frozen=True)
+class UnionTypeInfo:
+    values: t.Sequence[TypeInfo] = field(default_factory=tuple)
+
+    @classmethod
+    def build(cls, values: t.Sequence[TypeInfo]) -> UnionTypeInfo:
+        return cls(values=values)
+
+    @cached_property
+    def name(self) -> str:
+        return "UnionType"
+
+    @cached_property
+    def module(self) -> ModuleInfo:
+        return types_module_info()
+
+    @cached_property
+    def namespace(self) -> t.Sequence[str]:
+        return ()
+
+    @cached_property
+    def parts(self) -> t.Sequence[str]:
+        return *self.module.parts, *self.namespace, self.name
+
+    @cached_property
+    def qualname(self) -> str:
+        return ".".join(self.parts)
+
+
+TypeInfo: TypeAlias = t.Union[ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo, UnionTypeInfo]

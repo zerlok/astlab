@@ -17,10 +17,11 @@ from astlab.types.model import (
     PackageInfo,
     RuntimeType,
     TypeInfo,
+    UnionTypeInfo,
     builtins_module_info,
     none_type_info,
 )
-from tests.stub.types import StubBar, StubCM, StubEnum, StubFoo, StubInt, StubNode, StubUnionAlias, StubX
+from tests.stub.types import StubBar, StubCM, StubEnum, StubFoo, StubInt, StubNode, StubUnionAlias, StubUnionType, StubX
 
 
 class TestPackageInfo:
@@ -430,6 +431,24 @@ TYPES_CASES = pytest.mark.parametrize(
                 pytest.mark.skipif(
                     condition="sys.version_info < (3, 11)",
                     reason="can't get StubInt qualname in python versions < 3.11",
+                ),
+            ),
+        ),
+        pytest.param(
+            StubUnionType,
+            "builtins.int | builtins.str | builtins.float | None",
+            UnionTypeInfo(
+                values=(
+                    NamedTypeInfo(name="int", module=ModuleInfo(name="builtins")),
+                    NamedTypeInfo(name="str", module=ModuleInfo(name="builtins")),
+                    NamedTypeInfo(name="float", module=ModuleInfo(name="builtins")),
+                    none_type_info(),
+                ),
+            ),
+            marks=(
+                pytest.mark.skipif(
+                    condition="sys.version_info < (3, 10)",
+                    reason="union types syntax is available since python version 3.10",
                 ),
             ),
         ),

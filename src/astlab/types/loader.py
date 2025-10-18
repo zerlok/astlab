@@ -25,6 +25,7 @@ from astlab.types.model import (
     RuntimeType,
     TypeInfo,
     TypeVarInfo,
+    UnionTypeInfo,
     ellipsis_type_info,
     none_type_info,
 )
@@ -91,6 +92,9 @@ class TypeLoader:
         elif isinstance(info, EnumTypeInfo):
             rtt = self.__load_type_by_name(info)
 
+        elif isinstance(info, UnionTypeInfo):
+            rtt = self.__load_union_type(info)
+
         else:
             assert_never(info)
 
@@ -119,20 +123,7 @@ class TypeLoader:
 
     def __load_named_type(self, info: NamedTypeInfo) -> RuntimeType:
         rtt = self.__load_type_by_name(info)
-        if not info.type_params:
-            return rtt
-
-        # TODO: fix recursive type load
-        loaded_type_params = tuple(self.load(tp) for tp in info.type_params)
-
-        try:
-            return (
-                getitem(rtt, loaded_type_params) if len(loaded_type_params) > 1 else getitem(rtt, loaded_type_params[0])  # type: ignore[arg-type,misc]
-            )
-
-        except TypeError as err:
-            msg = "type params can't be applied to type"
-            raise TypeLoaderError(msg, info) from err
+        return self.__parametrize_type(info, rtt, info.type_params)
 
     def __load_type_by_name(self, info: t.Union[NamedTypeInfo, EnumTypeInfo]) -> RuntimeType:
         container: object = self.load(info.module)
@@ -145,4 +136,36 @@ class TypeLoader:
 
         except AttributeError as err:
             msg = "module has not attribute"
+            raise TypeLoaderError(msg, info) from err
+
+    if sys.version_info < (3, 10):
+
+        def __load_union_type(self, info: UnionTypeInfo) -> RuntimeType:
+            return self.__parametrize_type(info, t.Union, info.values)
+
+    else:
+
+        def __load_union_type(self, info: UnionTypeInfo) -> RuntimeType:
+            head, *tail = info.values
+
+            rtt = self.load(head)
+            for val in tail:
+                rtt |= self.load(val)
+
+            return rtt
+
+    def __parametrize_type(self, info: TypeInfo, rtt: RuntimeType, params: t.Sequence[TypeInfo]) -> RuntimeType:
+        if not params:
+            return rtt
+
+        # TODO: fix recursive type load
+        loaded_type_params = tuple(self.load(param) for param in params)
+
+        try:
+            return (
+                getitem(rtt, loaded_type_params) if len(loaded_type_params) > 1 else getitem(rtt, loaded_type_params[0])  # type: ignore[arg-type,misc]
+            )
+
+        except TypeError as err:
+            msg = "type params can't be applied to type"
             raise TypeLoaderError(msg, info) from err

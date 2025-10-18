@@ -355,7 +355,7 @@ def build_generic_class_312_313() -> ModuleASTBuilder:
         ),
     ),
 )
-def build_generic_class_after_314() -> ModuleASTBuilder:
+def build_generic_class_since_314() -> ModuleASTBuilder:
     """
     import builtins
     import typing
@@ -381,7 +381,7 @@ def build_generic_class_after_314() -> ModuleASTBuilder:
         ),
     ),
 )
-def build_type_alias_before_syntax_312() -> ModuleASTBuilder:
+def build_type_alias_before_312() -> ModuleASTBuilder:
     """
     import builtins
     import typing
@@ -441,7 +441,7 @@ def build_type_alias_before_syntax_312() -> ModuleASTBuilder:
         ),
     ),
 )
-def build_type_alias_syntax_312() -> ModuleASTBuilder:
+def build_type_alias_syntax_312_313() -> ModuleASTBuilder:
     """
     import builtins
     import typing
@@ -499,7 +499,7 @@ def build_type_alias_syntax_312() -> ModuleASTBuilder:
         ),
     ),
 )
-def build_type_alias_syntax_314() -> ModuleASTBuilder:
+def build_type_alias_syntax_since_314() -> ModuleASTBuilder:
     """
     import builtins
     import typing
@@ -546,4 +546,23 @@ def build_type_alias_syntax_314() -> ModuleASTBuilder:
                 )
             )
 
+        return mod
+
+
+@_to_param(
+    marks=(
+        pytest.mark.skipif(
+            condition="sys.version_info < (3, 10)",
+            reason="union type syntax is available since python version 3.10",
+        ),
+    ),
+)
+def build_union_type_since_310() -> ModuleASTBuilder:
+    """
+    import builtins
+
+    foo: builtins.int | builtins.str | None
+    """
+    with build_module("union") as mod:
+        mod.field_def("foo", int | str | None)
         return mod

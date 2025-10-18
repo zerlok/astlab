@@ -1,4 +1,5 @@
 import enum
+import sys
 import typing as t
 from dataclasses import dataclass
 
@@ -45,6 +46,12 @@ StubInt = t.NewType("StubInt", int)
 StubUnionAlias: TypeAlias = t.Union[StubFoo, StubBar[StubInt], StubX]
 
 StubRecursive: TypeAlias = t.Union[T, t.Sequence["StubRecursive[T]"]]
+
+if sys.version_info >= (3, 10):
+    StubUnionType = int | str | float | None
+
+else:
+    StubUnionType = t.Union[int, str, float, None]
 
 # TODO: enable after python 3.9, 3.10, 3.11 version support stop drop.
 #   type StubRecursive[T] = T | t.Sequence[StubRecursive[T]]  # noqa: ERA001

@@ -23,7 +23,7 @@ from astlab.types import (
     ellipsis_type_info,
     none_type_info,
 )
-from astlab.types.model import EnumTypeInfo, TypeVarInfo
+from astlab.types.model import EnumTypeInfo, TypeVarInfo, UnionTypeInfo
 
 
 class DefaultASTResolver(ASTResolver):
@@ -97,16 +97,20 @@ class DefaultASTResolver(ASTResolver):
         for info in traverse_dfs_post_order(root, self.__get_children):
             resolved_info = self.__resolve_dependency(info)
 
-            node = self.__build_expr(resolved_info)
-            if isinstance(info, NamedTypeInfo) and info.type_params:
-                params = [nodes[tp] for tp in info.type_params]
-                node = ast.Subscript(
-                    value=node,
-                    slice=ast.Tuple(elts=params) if len(params) > 1 else params[0],
-                )
+            if isinstance(resolved_info, UnionTypeInfo):
+                node = self.__build_union_expr(resolved_info, nodes)
 
-            if self.__is_forward_ref(resolved_info):
-                node = ast.Constant(value=ast.unparse(node))
+            else:
+                node = self.__build_expr(resolved_info)
+                if isinstance(info, NamedTypeInfo) and info.type_params:
+                    params = [nodes[tp] for tp in info.type_params]
+                    node = ast.Subscript(
+                        value=node,
+                        slice=ast.Tuple(elts=params) if len(params) > 1 else params[0],
+                    )
+
+                if self.__is_forward_ref(resolved_info):
+                    node = ast.Constant(value=ast.unparse(node))
 
             nodes[info] = node
 
@@ -138,6 +142,9 @@ class DefaultASTResolver(ASTResolver):
 
             return info
 
+        elif isinstance(info, UnionTypeInfo):
+            return info
+
         else:
             assert_never(info)
 
@@ -156,6 +163,15 @@ class DefaultASTResolver(ASTResolver):
         )
 
         return self.__chain_attr(ast.Name(id=head), *tail)
+
+    def __build_union_expr(self, info: UnionTypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
+        head, *tail = info.values
+        node = nodes[head]
+
+        for val in tail:
+            node = ast.BinOp(left=node, op=ast.BitOr(), right=nodes[val])
+
+        return node
 
     if sys.version_info >= (3, 14):
 
@@ -178,4 +194,17 @@ class DefaultASTResolver(ASTResolver):
         return expr
 
     def __get_children(self, info: TypeInfo) -> t.Iterable[TypeInfo]:
-        return info.type_params if isinstance(info, NamedTypeInfo) else ()
+        if isinstance(
+            info,
+            (ModuleInfo, TypeVarInfo, LiteralTypeInfo, EnumTypeInfo),
+        ):
+            return ()
+
+        elif isinstance(info, NamedTypeInfo):
+            return info.type_params
+
+        elif isinstance(info, UnionTypeInfo):
+            return info.values
+
+        else:
+            assert_never(info)

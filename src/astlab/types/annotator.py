@@ -23,12 +23,14 @@ from astlab.types.model import (
     RuntimeType,
     TypeInfo,
     TypeVarInfo,
+    UnionTypeInfo,
     builtins_module_info,
     ellipsis_type_info,
     none_type_info,
 )
 
 
+# TODO: consider ast.unparse usage for building valid type annotation
 class TypeAnnotator:
     """Provides annotation string form type info and vice versa (parses annotation to type info)."""
 
@@ -63,6 +65,9 @@ class TypeAnnotator:
 
         elif isinstance(info, EnumTypeInfo):
             annotation = info.qualname
+
+        elif isinstance(info, UnionTypeInfo):
+            annotation = " | ".join(self.annotate(val) for val in info.values)
 
         else:
             assert_never(info)
@@ -151,11 +156,21 @@ class _ExprParser(ast.NodeVisitor):
                 self.__info = replace(
                     self.__info,
                     type_params=tuple(
-                        self.__parse_type_params(*node.slice.elts)
+                        self.__parse_nested(*node.slice.elts)
                         if isinstance(node.slice, ast.Tuple)
-                        else self.__parse_type_params(node.slice)
+                        else self.__parse_nested(node.slice)
                     ),
                 )
+
+    @override
+    def visit_BinOp(self, node: ast.BinOp) -> None:
+        left, right = self.__parse_nested(node.left, node.right)
+
+        values = list[TypeInfo]()
+        values.extend(left.values if isinstance(left, UnionTypeInfo) else [left])
+        values.extend(right.values if isinstance(right, UnionTypeInfo) else [right])
+
+        self.__set_result(UnionTypeInfo(values=tuple(values)))
 
     def parse(self, node: ast.AST) -> TypeInfo:
         self.visit(node)
@@ -201,7 +216,7 @@ class _ExprParser(ast.NodeVisitor):
         msg = "invalid module parts"
         raise ValueError(msg, parts, ast.dump(node))
 
-    def __parse_type_params(self, *items: ast.AST) -> t.Sequence[TypeInfo]:
+    def __parse_nested(self, *items: ast.AST) -> t.Sequence[TypeInfo]:
         return [self.__class__(self.__loader).parse(item) for item in items]
 
 

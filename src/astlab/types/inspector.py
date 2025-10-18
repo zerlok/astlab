@@ -9,6 +9,7 @@ __all__ = [
 
 import enum
 import sys
+import types
 import typing as t
 from dataclasses import replace
 
@@ -22,6 +23,7 @@ from astlab.types.model import (
     RuntimeType,
     TypeInfo,
     TypeVarInfo,
+    UnionTypeInfo,
     typing_module_info,
 )
 from astlab.types.predef import get_predef
@@ -32,8 +34,12 @@ class TypeInspector:
 
     @lru_cache_method()
     def inspect(self, type_: t.Union[TypeInfo, RuntimeType]) -> TypeInfo:
-        if isinstance(type_, (ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo)):
+        if isinstance(type_, (ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo, UnionTypeInfo)):
             return type_
+
+        if isinstance(type_, types.UnionType):
+            args: t.Sequence[RuntimeType] = t.get_args(type_) or []
+            return UnionTypeInfo(values=tuple(self.inspect(arg) for arg in args))
 
         if isinstance(
             type_,
