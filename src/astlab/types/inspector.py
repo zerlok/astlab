@@ -28,6 +28,14 @@ from astlab.types.model import (
 )
 from astlab.types.predef import get_predef
 
+if sys.version_info >= (3, 10):
+    UnionType = types.UnionType
+
+else:
+
+    class UnionType:
+        pass
+
 
 class TypeInspector:
     """Provides type info from runtime type."""
@@ -37,7 +45,7 @@ class TypeInspector:
         if isinstance(type_, (ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo, UnionTypeInfo)):
             return type_
 
-        if isinstance(type_, types.UnionType):
+        if isinstance(type_, UnionType):
             args: t.Sequence[RuntimeType] = t.get_args(type_) or []
             return UnionTypeInfo(values=tuple(self.inspect(arg) for arg in args))
 

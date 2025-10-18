@@ -1,5 +1,6 @@
 import ast
 import inspect
+import operator
 import typing as t
 
 import pytest
@@ -564,5 +565,5 @@ def build_union_type_since_310() -> ModuleASTBuilder:
     foo: builtins.int | builtins.str | None
     """
     with build_module("union") as mod:
-        mod.field_def("foo", int | str | None)
+        mod.field_def("foo", operator.or_(operator.or_(int, str), None))
         return mod
