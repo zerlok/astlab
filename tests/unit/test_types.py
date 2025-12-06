@@ -233,6 +233,21 @@ TYPES_CASES = pytest.mark.parametrize(
             NamedTypeInfo("int", ModuleInfo("builtins")),
         ),
         pytest.param(
+            float,
+            "builtins.float",
+            NamedTypeInfo("float", ModuleInfo("builtins")),
+        ),
+        pytest.param(
+            str,
+            "builtins.str",
+            NamedTypeInfo("str", ModuleInfo("builtins")),
+        ),
+        pytest.param(
+            list,
+            "builtins.list",
+            NamedTypeInfo("list", ModuleInfo("builtins")),
+        ),
+        pytest.param(
             t.Literal["foo", "bar", "baz"],
             "typing.Literal['foo', 'bar', 'baz']",
             LiteralTypeInfo(values=("foo", "bar", "baz")),

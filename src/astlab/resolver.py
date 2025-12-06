@@ -50,7 +50,13 @@ class DefaultASTResolver(ASTResolver):
             return self.__resolve_info(expr.info, tail)
 
         else:
-            info = self.__inspector.inspect(expr)
+            info = (
+                expr
+                if isinstance(
+                    expr, (ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo, UnionTypeInfo)
+                )
+                else self.__inspector.inspect(expr)
+            )
             return self.__resolve_info(info, tail)
 
     @override

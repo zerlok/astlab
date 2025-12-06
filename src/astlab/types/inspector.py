@@ -11,22 +11,23 @@ import enum
 import sys
 import types
 import typing as t
-from dataclasses import replace
 
 from astlab.cache import lru_cache_method
 from astlab.types.model import (
     EnumTypeInfo,
     EnumTypeValue,
     LiteralTypeInfo,
+    LiteralTypeValue,
     ModuleInfo,
     NamedTypeInfo,
     RuntimeType,
     TypeInfo,
     TypeVarInfo,
     UnionTypeInfo,
+    ellipsis_type_info,
+    none_type_info,
     typing_module_info,
 )
-from astlab.types.predef import get_predef
 
 if sys.version_info >= (3, 10):
     UnionType = types.UnionType
@@ -41,25 +42,36 @@ class TypeInspector:
     """Provides type info from runtime type."""
 
     @lru_cache_method()
-    def inspect(self, type_: t.Union[TypeInfo, RuntimeType]) -> TypeInfo:
-        if isinstance(type_, (ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo, UnionTypeInfo)):
-            return type_
+    def inspect(self, type_: RuntimeType) -> TypeInfo:
+        if type_ is None:
+            return none_type_info()
 
-        if isinstance(type_, UnionType):
-            args: t.Sequence[RuntimeType] = t.get_args(type_) or []
-            return UnionTypeInfo(values=tuple(self.inspect(arg) for arg in args))
+        elif type_ is Ellipsis:
+            return ellipsis_type_info()
 
-        if isinstance(
+        elif isinstance(
             type_,
             t._LiteralGenericAlias,  # type: ignore[attr-defined] # noqa: SLF001
         ):
-            args = t.get_args(type_)
-            if not all(arg is not None or isinstance(arg, (bool, int, bytes, str)) for arg in args):
-                msg = "invalid literal type"
-                raise TypeError(msg, type_)
+            return LiteralTypeInfo(values=self.__extract_literals(type_))
 
-            return LiteralTypeInfo(values=args or ())
+        elif isinstance(type_, UnionType):
+            args: t.Sequence[RuntimeType] = t.get_args(type_) or []
+            return UnionTypeInfo(values=tuple(self.inspect(arg) for arg in args))
 
+        else:
+            return self.__inspect_named_type(type_)
+
+    def __extract_literals(self, type_: RuntimeType) -> t.Sequence[LiteralTypeValue]:
+        args = t.get_args(type_)
+
+        if not args or not all(arg is not None or isinstance(arg, (bool, int, bytes, str)) for arg in args):
+            msg = "invalid literal type"
+            raise TypeError(msg, type_)
+
+        return args
+
+    def __inspect_named_type(self, type_: RuntimeType) -> TypeInfo:
         origin, type_params = self.__unpack_generic(type_)
         module, namespace, name = self.__get_module_naming(origin)
 
@@ -75,14 +87,11 @@ class TypeInspector:
                     if origin.__contravariant__
                     else "invariant"
                 ),
-                lower=self.inspect(origin.__bound__)
-                if origin.__bound__ is not None
-                else replace(get_predef().union, type_params=tuple(self.inspect(co) for co in origin.__constraints__))
-                if origin.__constraints__
-                else None,
+                constraints=tuple(self.inspect(co) for co in origin.__constraints__),
+                lower=self.inspect(origin.__bound__) if origin.__bound__ is not None else None,
             )
 
-        if isinstance(origin, type) and issubclass(origin, enum.Enum):
+        elif isinstance(origin, type) and issubclass(origin, enum.Enum):
             return EnumTypeInfo(
                 name=name,
                 module=module,
@@ -90,12 +99,13 @@ class TypeInspector:
                 values=tuple(EnumTypeValue(name=enum_value.name, value=enum_value.value) for enum_value in origin),
             )
 
-        return NamedTypeInfo(
-            name=name,
-            module=module,
-            namespace=tuple(namespace),
-            type_params=tuple(self.inspect(type_param) for type_param in type_params),
-        )
+        else:
+            return NamedTypeInfo(
+                name=name,
+                module=module,
+                namespace=tuple(namespace),
+                type_params=tuple(self.inspect(type_param) for type_param in type_params),
+            )
 
     if sys.version_info >= (3, 11):
 

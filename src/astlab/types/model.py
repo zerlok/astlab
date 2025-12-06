@@ -163,6 +163,7 @@ class TypeVarInfo:
     module: ModuleInfo
     namespace: t.Sequence[str] = field(default_factory=tuple)
     variance: TypeVarVariance = "invariant"
+    constraints: t.Optional[t.Sequence[TypeInfo]] = None
     lower: t.Optional[TypeInfo] = None
 
     @cached_property

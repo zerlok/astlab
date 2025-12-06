@@ -51,12 +51,16 @@ from astlab.abc import (
 from astlab.context import BuildContext
 from astlab.resolver import DefaultASTResolver
 from astlab.types import (
+    EnumTypeInfo,
+    LiteralTypeInfo,
     ModuleInfo,
     NamedTypeInfo,
     PackageInfo,
     TypeInfo,
     TypeInspector,
+    TypeVarInfo,
     TypeVarVariance,
+    UnionTypeInfo,
     predef,
 )
 from astlab.writer import render_module, write_module
@@ -130,6 +134,15 @@ class _BaseBuilder:
     def _normalize_body(self, body: t.Sequence[Stmt], docs: t.Optional[t.Sequence[str]] = None) -> list[ast.stmt]:
         return self._context.resolver.resolve_stmts(*body, docs=docs, pass_if_empty=True)
 
+    def _normalize_type_ref(self, ref: TypeRef) -> TypeInfo:
+        return (
+            ref
+            if isinstance(ref, (ModuleInfo, TypeVarInfo, NamedTypeInfo, LiteralTypeInfo, EnumTypeInfo, UnionTypeInfo))
+            else ref.info
+            if isinstance(ref, TypeDefinitionBuilder)
+            else self._context.inspector.inspect(ref)
+        )
+
 
 # noinspection PyTypeChecker
 class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
@@ -137,31 +150,31 @@ class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
         super().__init__(context)
         self.__factory = factory
 
-    def __neg__(self) -> Self:
+    def __neg__(self) -> BaseASTExpressionBuilder:
         return self.__unary_op_expr(ast.Not())
 
-    def __invert__(self) -> Self:
+    def __invert__(self) -> BaseASTExpressionBuilder:
         return self.__unary_op_expr(ast.Invert())
 
-    def __and__(self, other: Expr) -> Self:
+    def __and__(self, other: Expr) -> BaseASTExpressionBuilder:
         return self.__bool_op_expr(ast.And(), other)
 
-    def __or__(self, other: Expr) -> Self:
+    def __or__(self, other: Expr) -> BaseASTExpressionBuilder:
         return self.__bool_op_expr(ast.Or(), other)
 
-    def __add__(self, other: Expr) -> Self:
+    def __add__(self, other: Expr) -> BaseASTExpressionBuilder:
         return self.__bin_op_expr(ast.Add(), other)
 
-    def __sub__(self, other: Expr) -> Self:
+    def __sub__(self, other: Expr) -> BaseASTExpressionBuilder:
         return self.__bin_op_expr(ast.Sub(), other)
 
-    def __mul__(self, other: Expr) -> Self:
+    def __mul__(self, other: Expr) -> BaseASTExpressionBuilder:
         return self.__bin_op_expr(ast.Mult(), other)
 
-    def __matmul__(self, other: Expr) -> Self:
+    def __matmul__(self, other: Expr) -> BaseASTExpressionBuilder:
         return self.__bin_op_expr(ast.MatMult(), other)
 
-    def __truediv__(self, other: Expr) -> Self:
+    def __truediv__(self, other: Expr) -> BaseASTExpressionBuilder:
         return self.__bin_op_expr(ast.Div(), other)
 
     @override
@@ -175,23 +188,23 @@ class BaseASTExpressionBuilder(_BaseBuilder, ASTExpressionBuilder):
 
         return node
 
-    def __bool_op_expr(self, op: ast.boolop, right: Expr) -> Self:
+    def __bool_op_expr(self, op: ast.boolop, right: Expr) -> BaseASTExpressionBuilder:
         def create() -> ast.expr:
             return ast.BoolOp(op=op, values=[self.build_expr(), self._normalize_expr(right)])
 
-        return self.__class__(context=self._context, factory=create)
+        return BaseASTExpressionBuilder(self._context, create)
 
-    def __unary_op_expr(self, op: ast.unaryop) -> Self:
+    def __unary_op_expr(self, op: ast.unaryop) -> BaseASTExpressionBuilder:
         def create() -> ast.expr:
             return ast.UnaryOp(op=op, operand=self.build_expr())
 
-        return self.__class__(self._context, create)
+        return BaseASTExpressionBuilder(self._context, create)
 
-    def __bin_op_expr(self, op: ast.operator, right: Expr) -> Self:
+    def __bin_op_expr(self, op: ast.operator, right: Expr) -> BaseASTExpressionBuilder:
         def create() -> ast.expr:
             return ast.BinOp(left=self.build_expr(), op=op, right=self._normalize_expr(right))
 
-        return self.__class__(self._context, create)
+        return BaseASTExpressionBuilder(self._context, create)
 
 
 def _ast_expr_builder(
@@ -433,20 +446,25 @@ class SliceASTBuilder(BaseASTExpressionBuilder):
         return node
 
 
-class TypeRefBuilder(ASTExpressionBuilder):
+class TypeRefBuilder(_BaseBuilder, TypeDefinitionBuilder, ASTExpressionBuilder):
     def __init__(
         self,
         context: BuildContext,
         info: TypeInfo,
         transform: t.Optional[t.Callable[[TypeInfo], TypeInfo]] = None,
     ) -> None:
-        self.__context = context
+        super().__init__(context)
         self.__info = info
         self.__transform: t.Callable[[TypeInfo], TypeInfo] = transform if transform is not None else self.__ident
 
+    @override
     @property
     def info(self) -> TypeInfo:
-        return self.__info
+        return self.__transform(self.__info)
+
+    @override
+    def ref(self) -> ASTExpressionBuilder:
+        return self
 
     def optional(self) -> TypeRefBuilder:
         def transform(
@@ -454,6 +472,18 @@ class TypeRefBuilder(ASTExpressionBuilder):
             info: TypeInfo,
         ) -> TypeInfo:
             return predef().optional.with_type_params(inner(info))
+
+        return self.__wrap(transform)
+
+    def union(self, *others: TypeRef) -> TypeRefBuilder:
+        if not others:
+            return self
+
+        def transform(
+            inner: t.Callable[[TypeInfo], TypeInfo],
+            info: TypeInfo,
+        ) -> TypeInfo:
+            return UnionTypeInfo(values=(inner(info), *(self._normalize_type_ref(type_) for type_ in others)))
 
         return self.__wrap(transform)
 
@@ -499,7 +529,7 @@ class TypeRefBuilder(ASTExpressionBuilder):
             info: TypeInfo,
         ) -> TypeInfo:
             return (predef().mutable_mapping if mutable else predef().mapping).with_type_params(
-                inner(info), self.__context.inspector.inspect(value)
+                inner(info), self._normalize_type_ref(value)
             )
 
         return self.__wrap(transform)
@@ -509,7 +539,7 @@ class TypeRefBuilder(ASTExpressionBuilder):
             inner: t.Callable[[TypeInfo], TypeInfo],
             info: TypeInfo,
         ) -> TypeInfo:
-            return predef().dict.with_type_params(inner(info), self.__context.inspector.inspect(value))
+            return predef().dict.with_type_params(inner(info), self._normalize_type_ref(value))
 
         return self.__wrap(transform)
 
@@ -519,7 +549,7 @@ class TypeRefBuilder(ASTExpressionBuilder):
             info: TypeInfo,
         ) -> TypeInfo:
             return (predef().mutable_mapping if mutable else predef().mapping).with_type_params(
-                self.__context.inspector.inspect(key), inner(info)
+                self._normalize_type_ref(key), inner(info)
             )
 
         return self.__wrap(transform)
@@ -529,7 +559,7 @@ class TypeRefBuilder(ASTExpressionBuilder):
             inner: t.Callable[[TypeInfo], TypeInfo],
             info: TypeInfo,
         ) -> TypeInfo:
-            return predef().dict.with_type_params(self.__context.inspector.inspect(key), inner(info))
+            return predef().dict.with_type_params(self._normalize_type_ref(key), inner(info))
 
         return self.__wrap(transform)
 
@@ -573,23 +603,23 @@ class TypeRefBuilder(ASTExpressionBuilder):
                 msg = "named type info was expected to apply type params"
                 raise TypeError(msg, origin, params)
 
-            return origin.with_type_params(*(self.__context.inspector.inspect(param) for param in params))
+            return origin.with_type_params(*(self._normalize_type_ref(param) for param in params))
 
         return self.__wrap(transform)
 
     def attr(self, *tail: str) -> AttrASTBuilder:
-        return AttrASTBuilder(self.__context, self, *tail)
+        return AttrASTBuilder(self._context, self, *tail)
 
     def init(
         self,
         args: t.Optional[t.Sequence[Expr]] = None,
         kwargs: t.Optional[t.Mapping[str, Expr]] = None,
     ) -> CallASTBuilder:
-        return CallASTBuilder(self.__context, self, args, kwargs)
+        return CallASTBuilder(self._context, self, args, kwargs)
 
     @override
     def build_expr(self) -> ast.expr:
-        return self.__context.resolver.resolve_expr(self.__transform(self.__info))
+        return self._context.resolver.resolve_expr(self.info)
 
     def __ident(self, info: TypeInfo) -> TypeInfo:
         return info
@@ -598,12 +628,12 @@ class TypeRefBuilder(ASTExpressionBuilder):
         self,
         transform: t.Callable[[t.Callable[[TypeInfo], TypeInfo], TypeInfo], TypeInfo],
     ) -> TypeRefBuilder:
-        return self.__class__(self.__context, self.__info, partial(transform, self.__transform))
+        return self.__class__(self._context, self.__info, partial(transform, self.__transform))
 
 
 class AnnotationASTBuilder(_BaseBuilder):
     def type_ref(self, origin: TypeRef) -> TypeRefBuilder:
-        return TypeRefBuilder(self._context, self._context.inspector.inspect(origin))
+        return TypeRefBuilder(self._context, self._normalize_type_ref(origin))
 
     if sys.version_info >= (3, 10):
 
@@ -955,6 +985,16 @@ class ScopeASTBuilder(AnnotationASTBuilder):
 
     def stmt(self, *stmts: t.Optional[Stmt]) -> None:
         self._context.extend_body(self._context.resolver.resolve_stmts(*stmts))
+
+    def compr(
+        self,
+        target: Expr,
+        items: Expr,
+        predicates: t.Optional[t.Sequence[Expr]] = None,
+        *,
+        is_async: bool = False,
+    ) -> Comprehension:
+        return Comprehension(target=target, items=items, predicates=predicates or (), is_async=is_async)
 
     def class_def(self, name: str) -> ClassStatementASTBuilder:
         return ClassStatementASTBuilder(self._context, name)

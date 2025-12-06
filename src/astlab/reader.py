@@ -11,6 +11,7 @@ import importlib
 import io
 import sys
 import typing as t
+from itertools import chain
 from pathlib import Path
 from types import ModuleType
 
@@ -58,17 +59,25 @@ def parse_module(source: t.Union[str, t.IO[str]], *, indented: bool = False) -> 
         return ast.parse(source if isinstance(source, str) else source.read())
 
     source = io.StringIO(source) if isinstance(source, str) else source
-    offset: t.Optional[int] = None
+    offset, head = _find_offset(source)
+    if offset < 0:
+        return ast.parse(head)
 
-    with io.StringIO() as dest:
-        for line in source:
-            if offset is None:
-                idx, _ = next(((i, c) for i, c in enumerate(line) if not c.isspace()), (None, None))
-                if idx is None:
-                    continue
+    with io.StringIO() as buff:
+        for line in chain((head,), source):
+            buff.write(line[offset:])
 
-                offset = idx
+        buff.seek(0)
 
-            dest.writelines([line[offset:]])
+        return ast.parse(buff.read())
 
-        return ast.parse(dest.read())
+
+def _find_offset(source: t.IO[str]) -> tuple[int, str]:
+    for line in source:
+        idx, _ = next(((i, c) for i, c in enumerate(line) if not c.isspace()), (None, None))
+        if idx is None:
+            continue
+
+        return idx, line
+
+    return -1, ""
