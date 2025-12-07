@@ -195,7 +195,7 @@ def build_type_ref_runtime_types() -> BuilderCase:
             expected_code=normalize_code("""
                 import builtins
                 import typing
-    
+
                 int_to_str = builtins.dict[builtins.int, builtins.str]()
                 int_to_opt_str = builtins.dict[builtins.int, typing.Optional[builtins.str]]()
                 int_dict_key_str_optional = builtins.dict[builtins.int, typing.Optional[builtins.str]]()
