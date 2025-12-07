@@ -9,7 +9,7 @@ from tests.marks import (
     FEATURE_FORWARD_REF,
     FEATURE_TYPE_ALIAS_SYNTAX,
     FEATURE_TYPE_VAR_SYNTAX,
-    FEATURE_UNION_TYPE_SYNTAX,
+    FEATURE_TYPING_UNION_IS_UNION_TYPE,
 )
 
 
@@ -19,7 +19,7 @@ class BuilderCase:
     expected_code: str
 
 
-def build_empty_module() -> BuilderCase:
+def empty_module() -> BuilderCase:
     with build_module("empty") as mod:
         return BuilderCase(
             builder=mod,
@@ -27,7 +27,7 @@ def build_empty_module() -> BuilderCase:
         )
 
 
-def build_simple_module() -> BuilderCase:
+def simple_module() -> BuilderCase:
     with (
         build_module("simple") as mod,
         mod.class_def("Foo").docstring("Docstring Foo.") as foo,
@@ -80,7 +80,7 @@ def build_simple_module() -> BuilderCase:
         )
 
 
-def build_bar_inherits_foo() -> BuilderCase:
+def bar_inherits_foo() -> BuilderCase:
     with (
         build_package("simple") as pkg,
         pkg.module("foo") as foo,
@@ -115,31 +115,31 @@ def build_bar_inherits_foo() -> BuilderCase:
         )
 
 
-def build_add_expr() -> BuilderCase:
+def add_expr() -> BuilderCase:
     with build_module("expr") as mod:
         mod.assign_stmt("y", mod.attr("x") + mod.const(2))
         return BuilderCase(builder=mod, expected_code="y = x + 2")
 
 
-def build_neg_expr() -> BuilderCase:
+def neg_expr() -> BuilderCase:
     with build_module("expr") as mod:
         mod.assign_stmt("y", mod.attr("x") - mod.const(2))
         return BuilderCase(builder=mod, expected_code="y = x - 2")
 
 
-def build_mul_expr() -> BuilderCase:
+def mul_expr() -> BuilderCase:
     with build_module("expr") as mod:
         mod.assign_stmt("y", mod.attr("x") * mod.const(2))
         return BuilderCase(builder=mod, expected_code="y = x * 2")
 
 
-def build_div_expr() -> BuilderCase:
+def div_expr() -> BuilderCase:
     with build_module("expr") as mod:
         mod.assign_stmt("y", mod.attr("x") / mod.const(2))
         return BuilderCase(builder=mod, expected_code="y = x / 2")
 
 
-def build_typing_optionals() -> BuilderCase:
+def typing_optionals() -> BuilderCase:
     with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
         opt.field_def("my_generic_option_int", opt.generic_type(t.Optional, int))
         opt.field_def("my_optional_str", opt.type_ref(str).optional())
@@ -163,7 +163,7 @@ def build_typing_optionals() -> BuilderCase:
         )
 
 
-def build_typing_unions() -> BuilderCase:
+def typing_unions() -> BuilderCase:
     with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
         opt.field_def("my_union_str_none", opt.union_type(str, None))
         opt.field_def("my_union_int_str_none", opt.union_type(int, str, None))
@@ -183,7 +183,7 @@ def build_typing_unions() -> BuilderCase:
         )
 
 
-def build_type_ref_runtime_types() -> BuilderCase:
+def type_ref_runtime_types() -> BuilderCase:
     with build_module("types") as mod:
         mod.assign_stmt("int_to_str", mod.type_ref(dict[int, str]).init())
         mod.assign_stmt("int_to_opt_str", mod.type_ref(dict[int, t.Optional[str]]).init())
@@ -202,7 +202,7 @@ def build_type_ref_runtime_types() -> BuilderCase:
         )
 
 
-def build_is_not_none_expr() -> BuilderCase:
+def is_not_none_expr() -> BuilderCase:
     with build_module("types") as mod:
         mod.assign_stmt("maybe", mod.ternary_not_none_expr(mod.attr("body"), mod.attr("test")))
 
@@ -212,7 +212,7 @@ def build_is_not_none_expr() -> BuilderCase:
         )
 
 
-def build_list_const() -> BuilderCase:
+def list_const() -> BuilderCase:
     with build_module("types") as mod:
         mod.assign_stmt("result", mod.list_expr([mod.const(1), mod.const(2), mod.attr("foo"), mod.attr("bar")]))
 
@@ -222,7 +222,7 @@ def build_list_const() -> BuilderCase:
         )
 
 
-def build_list_compr_expr() -> BuilderCase:
+def list_compr_expr() -> BuilderCase:
     with build_module("types") as mod:
         mod.assign_stmt(
             "ys",
@@ -235,7 +235,7 @@ def build_list_compr_expr() -> BuilderCase:
         )
 
 
-def build_try_except_else_finally() -> BuilderCase:
+def try_except_else_finally() -> BuilderCase:
     with build_module("zero") as mod:
         with mod.try_stmt() as try_stmt:
             with try_stmt.body() as try_scope:
@@ -267,7 +267,7 @@ def build_try_except_else_finally() -> BuilderCase:
         )
 
 
-def build_index_slice() -> BuilderCase:
+def index_slice() -> BuilderCase:
     with build_module("slice") as mod:
         mod.stmt(mod.attr("list").index(mod.attr("str")))
         mod.stmt(mod.attr("x").index(mod.const(0)).index(mod.const(1)).index(mod.const(2)))
@@ -302,7 +302,7 @@ def build_node_t_module() -> ModuleASTBuilder:
 
 
 @FEATURE_TYPE_VAR_SYNTAX.mark_obsolete()
-def build_node_t_syntax_before_312() -> BuilderCase:
+def node_t_syntax_before_312() -> BuilderCase:
     return BuilderCase(
         builder=build_node_t_module(),
         expected_code=normalize_code("""
@@ -320,7 +320,7 @@ def build_node_t_syntax_before_312() -> BuilderCase:
 
 @FEATURE_TYPE_VAR_SYNTAX.mark_required()
 @FEATURE_FORWARD_REF.mark_obsolete()
-def build_node_t_syntax_312_313() -> BuilderCase:
+def node_t_syntax_312_313() -> BuilderCase:
     return BuilderCase(
         builder=build_node_t_module(),
         expected_code=normalize_code("""
@@ -336,7 +336,7 @@ def build_node_t_syntax_312_313() -> BuilderCase:
 
 @FEATURE_TYPE_VAR_SYNTAX.mark_required()
 @FEATURE_FORWARD_REF.mark_required()
-def build_node_t_syntax_since_314() -> BuilderCase:
+def node_t_syntax_since_314() -> BuilderCase:
     return BuilderCase(
         builder=build_node_t_module(),
         expected_code=normalize_code("""
@@ -384,7 +384,7 @@ def build_type_alias_module() -> ModuleASTBuilder:
 
 
 @FEATURE_TYPE_ALIAS_SYNTAX.mark_obsolete()
-def build_type_alias_syntax_before_312() -> BuilderCase:
+def type_aliases_before_type_alias_support() -> BuilderCase:
     return BuilderCase(
         builder=build_type_alias_module(),
         expected_code=normalize_code("""
@@ -410,7 +410,7 @@ def build_type_alias_syntax_before_312() -> BuilderCase:
 
 @FEATURE_FORWARD_REF.mark_obsolete()
 @FEATURE_TYPE_ALIAS_SYNTAX.mark_required()
-def build_type_alias_syntax_312_313() -> BuilderCase:
+def type_aliases_with_type_alias_syntax_before_forward_ref_support() -> BuilderCase:
     return BuilderCase(
         builder=build_type_alias_module(),
         expected_code=normalize_code("""
@@ -434,7 +434,7 @@ def build_type_alias_syntax_312_313() -> BuilderCase:
 
 @FEATURE_TYPE_ALIAS_SYNTAX.mark_required()
 @FEATURE_FORWARD_REF.mark_required()
-def build_type_alias_syntax_since_314() -> BuilderCase:
+def type_aliases_since_type_alias_syntax_and_forward_ref_support() -> BuilderCase:
     return BuilderCase(
         builder=build_type_alias_module(),
         expected_code=normalize_code("""
@@ -465,8 +465,8 @@ def build_union_type_module() -> ModuleASTBuilder:
         return mod
 
 
-@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
-def build_union_type_syntax_before_310() -> BuilderCase:
+@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
+def union_types_before_union_type_syntax_support() -> BuilderCase:
     return BuilderCase(
         builder=build_union_type_module(),
         expected_code=normalize_code("""
@@ -482,8 +482,8 @@ def build_union_type_syntax_before_310() -> BuilderCase:
     )
 
 
-@FEATURE_UNION_TYPE_SYNTAX.mark_required()
-def build_union_type_syntax_since_310() -> BuilderCase:
+@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_required()
+def union_types_since_complete_union_type_support() -> BuilderCase:
     return BuilderCase(
         builder=build_union_type_module(),
         expected_code=normalize_code("""

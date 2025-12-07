@@ -22,6 +22,7 @@ from astlab.types import (
     TypeInspector,
     ellipsis_type_info,
     none_type_info,
+    predef,
 )
 from astlab.types.model import EnumTypeInfo, TypeVarInfo, UnionTypeInfo
 
@@ -107,16 +108,7 @@ class DefaultASTResolver(ASTResolver):
                 node = self.__build_union_expr(resolved_info, nodes)
 
             else:
-                node = self.__build_expr(resolved_info)
-                if isinstance(info, NamedTypeInfo) and info.type_params:
-                    params = [nodes[tp] for tp in info.type_params]
-                    node = ast.Subscript(
-                        value=node,
-                        slice=ast.Tuple(elts=params) if len(params) > 1 else params[0],
-                    )
-
-                if self.__is_forward_ref(resolved_info):
-                    node = ast.Constant(value=ast.unparse(node))
+                node = self.__build_expr(resolved_info, nodes)
 
             nodes[info] = node
 
@@ -154,7 +146,7 @@ class DefaultASTResolver(ASTResolver):
         else:
             assert_never(info)
 
-    def __build_expr(self, info: TypeInfo) -> ast.expr:
+    def __build_expr(self, info: TypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
         if info == none_type_info():
             return ast.Constant(value=None)
 
@@ -168,23 +160,39 @@ class DefaultASTResolver(ASTResolver):
             else info.parts
         )
 
-        return self.__chain_attr(ast.Name(id=head), *tail)
+        node = self.__chain_attr(ast.Name(id=head), *tail)
 
-    def __build_union_expr(self, info: UnionTypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
-        head, *tail = info.values
-        node = nodes[head]
+        if isinstance(info, NamedTypeInfo) and info.type_params:
+            params = [nodes[tp] for tp in info.type_params]
+            node = ast.Subscript(
+                value=node,
+                slice=ast.Tuple(elts=params) if len(params) > 1 else params[0],
+            )
 
-        for val in tail:
-            node = ast.BinOp(left=node, op=ast.BitOr(), right=nodes[val])
+        if self.__is_forward_ref(info):
+            node = ast.Constant(value=ast.unparse(node))
 
         return node
 
     if sys.version_info >= (3, 14):
 
+        def __build_union_expr(self, info: UnionTypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
+            head, *tail = info.values
+            node = nodes[head]
+
+            for val in tail:
+                node = ast.BinOp(left=node, op=ast.BitOr(), right=nodes[val])
+
+            return node
+
         def __is_forward_ref(self, _: TypeInfo) -> bool:
             return False
 
     else:
+
+        def __build_union_expr(self, info: UnionTypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
+            union_named_type = predef().union.with_type_params(*info.values)
+            return self.__build_expr(self.__resolve_dependency(union_named_type), nodes)
 
         def __is_forward_ref(self, info: TypeInfo) -> bool:
             return (
