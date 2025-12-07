@@ -56,8 +56,13 @@ class TypeInspector:
             return LiteralTypeInfo(values=self.__extract_literals(type_))
 
         elif isinstance(type_, UnionType):
-            args: t.Sequence[RuntimeType] = t.get_args(type_) or []
-            return UnionTypeInfo(values=tuple(self.inspect(arg) for arg in args))
+            origin, args = self.__unpack_generic(type_)
+            type_params = tuple(self.inspect(arg) for arg in args)
+            return (
+                UnionTypeInfo(values=type_params)
+                if origin is not t.Optional
+                else NamedTypeInfo("Optional", ModuleInfo("typing"), type_params=type_params)
+            )
 
         else:
             return self.__inspect_named_type(type_)
