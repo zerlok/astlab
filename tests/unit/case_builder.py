@@ -1,5 +1,4 @@
 import ast
-import operator
 import typing as t
 from dataclasses import dataclass
 
@@ -458,7 +457,8 @@ def build_type_alias_syntax_since_314() -> BuilderCase:
 
 
 def build_union_type_module() -> ModuleASTBuilder:
-    foo_union = operator.or_(operator.or_(int, str), None)
+    foo_union = t.Union[int, str, None]
+
     with build_module("union") as mod:
         mod.field_def("foo", foo_union)
         mod.field_def("list_dict_foo", mod.type_ref(list[int]).union(mod.type_ref(foo_union).dict_value(str)))

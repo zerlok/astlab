@@ -12,7 +12,7 @@ from astlab.types import (
     TypeInfo,
     UnionTypeInfo,
 )
-from tests.marks import FEATURE_TYPE_ALIAS_QUALNAME, FEATURE_UNION_TYPE_SYNTAX
+from tests.marks import FEATURE_TYPE_ALIAS_QUALNAME, FEATURE_TYPING_UNION_IS_UNION_TYPE, FEATURE_UNION_TYPE_SYNTAX
 from tests.stub.types import StubBar, StubCM, StubEnum, StubFoo, StubInt, StubNode, StubUnionAlias, StubUnionType, StubX
 
 
@@ -175,8 +175,8 @@ def union_type() -> TypeCase:
     )
 
 
-@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
-def union_int_str_before_union_syntax() -> TypeCase:
+@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
+def union_int_str_before_union_type_support() -> TypeCase:
     return TypeCase(
         python_type=t.Union[int, str],
         valid_annotation="typing.Union[builtins.int, builtins.str]",
@@ -191,8 +191,8 @@ def union_int_str_before_union_syntax() -> TypeCase:
     )
 
 
-@FEATURE_UNION_TYPE_SYNTAX.mark_required()
-def union_int_str_with_union_syntax() -> TypeCase:
+@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_required()
+def union_int_str_with_union_type_support() -> TypeCase:
     return TypeCase(
         python_type=t.Union[int, str],
         valid_annotation="builtins.int | builtins.str",
@@ -205,8 +205,8 @@ def union_int_str_with_union_syntax() -> TypeCase:
     )
 
 
-@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
-def union_int_str_none_type_before_union_syntax() -> TypeCase:
+@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
+def union_int_str_none_before_union_type_support() -> TypeCase:
     return TypeCase(
         python_type=t.Union[int, str, None],
         valid_annotation="typing.Union[builtins.int, builtins.str, None]",
@@ -222,8 +222,8 @@ def union_int_str_none_type_before_union_syntax() -> TypeCase:
     )
 
 
-@FEATURE_UNION_TYPE_SYNTAX.mark_required()
-def union_int_str_none_type_with_union_syntax() -> TypeCase:
+@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_required()
+def union_int_str_none_with_union_type_support() -> TypeCase:
     return TypeCase(
         python_type=t.Union[int, str, None],
         valid_annotation="builtins.int | builtins.str | None",
@@ -362,8 +362,8 @@ def stub_alias_new_type() -> TypeCase:
 
 
 @FEATURE_TYPE_ALIAS_QUALNAME.mark_required()
-@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
-def stub_union_alias_before_union_type_syntax() -> TypeCase:
+@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
+def stub_union_alias_before_union_type_support() -> TypeCase:
     return TypeCase(
         python_type=StubUnionAlias,
         valid_annotation="typing.Union["
@@ -411,8 +411,8 @@ def stub_union_alias_before_union_type_syntax() -> TypeCase:
 
 
 @FEATURE_TYPE_ALIAS_QUALNAME.mark_required()
-@FEATURE_UNION_TYPE_SYNTAX.mark_required()
-def stub_union_alias_with_union_syntax() -> TypeCase:
+@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_required()
+def stub_union_alias_with_union_type_support() -> TypeCase:
     return TypeCase(
         python_type=StubUnionAlias,
         valid_annotation="tests.stub.types.StubFoo"
@@ -456,7 +456,7 @@ def stub_union_alias_with_union_syntax() -> TypeCase:
 
 
 @FEATURE_UNION_TYPE_SYNTAX.mark_required()
-def stub_union_syntax_type() -> TypeCase:
+def stub_union_type_with_union_syntax_support() -> TypeCase:
     return TypeCase(
         python_type=StubUnionType,
         valid_annotation="builtins.int | builtins.str | builtins.float | None",
