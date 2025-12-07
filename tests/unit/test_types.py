@@ -1,525 +1,151 @@
-import math
+import importlib
 import typing as t
-from pathlib import Path
-from types import ModuleType
 
 import pytest
+from pytest_case_provider import inject_method
 
-from astlab import abc as astlab_abc
-from astlab.types import EnumTypeInfo, EnumTypeValue
 from astlab.types.annotator import TypeAnnotator
 from astlab.types.inspector import TypeInspector
 from astlab.types.loader import TypeLoader, TypeLoaderError
 from astlab.types.model import (
-    LiteralTypeInfo,
     ModuleInfo,
     NamedTypeInfo,
     PackageInfo,
-    RuntimeType,
     TypeInfo,
-    UnionTypeInfo,
     builtins_module_info,
-    none_type_info,
 )
-from tests.stub.types import StubBar, StubCM, StubEnum, StubFoo, StubInt, StubNode, StubUnionAlias, StubUnionType, StubX
+from tests.unit.case_types import ModuleCase, PackageCase, TypeCase
 
 
 class TestPackageInfo:
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                [],
-                None,
-            ),
-            pytest.param(
-                ["pyprotostuben"],
-                PackageInfo("pyprotostuben"),
-            ),
-            pytest.param(
-                ["pyprotostuben", "python"],
-                PackageInfo("python", PackageInfo("pyprotostuben")),
-            ),
-        ],
-    )
-    def test_build_or_none_ok(self, value: t.Sequence[str], expected: t.Optional[PackageInfo]) -> None:
-        assert PackageInfo.build_or_none(*value) == expected
+    @inject_method()
+    def test_parent_is_valid(self, case: PackageCase) -> None:
+        assert case.info.parent == case.valid_parent
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                PackageInfo("pyprotostuben"),
-                None,
-            ),
-            pytest.param(
-                PackageInfo("python", PackageInfo("pyprotostuben")),
-                PackageInfo("pyprotostuben"),
-            ),
-        ],
-    )
-    def test_parent_ok(self, value: PackageInfo, expected: t.Optional[PackageInfo]) -> None:
-        assert value.parent == expected
+    @inject_method()
+    def test_directory_is_valid(self, case: PackageCase) -> None:
+        assert case.info.directory == case.valid_directory
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                PackageInfo("pyprotostuben"),
-                Path("pyprotostuben"),
-            ),
-            pytest.param(
-                PackageInfo("python", PackageInfo("pyprotostuben")),
-                Path("pyprotostuben") / "python",
-            ),
-        ],
-    )
-    def test_directory_ok(self, value: PackageInfo, expected: Path) -> None:
-        assert value.directory == expected
+    @inject_method()
+    def test_parts_are_valid(self, case: PackageCase) -> None:
+        assert case.info.parts == case.valid_parts
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                PackageInfo("pyprotostuben"),
-                ("pyprotostuben",),
-            ),
-            pytest.param(
-                PackageInfo("python", PackageInfo("pyprotostuben")),
-                ("pyprotostuben", "python"),
-            ),
-        ],
-    )
-    def test_parts_ok(self, value: PackageInfo, expected: t.Sequence[str]) -> None:
-        assert value.parts == expected
+    @inject_method()
+    def test_qualname_is_valid(self, case: PackageCase) -> None:
+        assert case.info.qualname == case.valid_qualname
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                PackageInfo("pyprotostuben"),
-                "pyprotostuben",
-            ),
-            pytest.param(
-                PackageInfo("python", PackageInfo("pyprotostuben")),
-                "pyprotostuben.python",
-            ),
-        ],
-    )
-    def test_qualname_ok(self, value: PackageInfo, expected: t.Sequence[str]) -> None:
-        assert value.qualname == expected
+    @inject_method()
+    def test_build_or_none_from_parts_is_same_info(self, case: PackageCase) -> None:
+        assert PackageInfo.build_or_none(*case.info.parts) == case.info
+
+    @inject_method()
+    def test_build_from_parts_is_same_info(self, case: PackageCase) -> None:
+        assert PackageInfo.build(*case.info.parts) == case.info
+
+    @inject_method()
+    def test_from_qualname_str_is_same_info(self, case: PackageCase) -> None:
+        assert PackageInfo.from_str(case.info.qualname) == case.info
 
 
 class TestModuleInfo:
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                "builtins",
-                ModuleInfo("builtins"),
-            ),
-            pytest.param(
-                "pyprotostuben.python.info",
-                ModuleInfo("info", PackageInfo("python", PackageInfo("pyprotostuben"))),
-            ),
-        ],
-    )
-    def test_from_str_ok(self, value: str, expected: ModuleInfo) -> None:
-        assert ModuleInfo.from_str(value) == expected
+    @inject_method()
+    def test_parent_is_valid(self, case: ModuleCase) -> None:
+        assert case.info.package == case.valid_package
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                math,
-                ModuleInfo("math"),
-            ),
-            pytest.param(
-                astlab_abc,
-                ModuleInfo("abc", PackageInfo("astlab")),
-            ),
-        ],
-    )
-    def test_from_module_ok(self, value: ModuleType, expected: ModuleInfo) -> None:
-        assert ModuleInfo.from_module(value) == expected
+    @inject_method()
+    def test_file_is_valid(self, case: ModuleCase) -> None:
+        assert case.info.file == case.valid_file
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                ModuleInfo("math"),
-                None,
-            ),
-            pytest.param(
-                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
-                PackageInfo("codegen", PackageInfo("pyprotostuben")),
-            ),
-        ],
-    )
-    def test_package_ok(self, value: ModuleInfo, expected: t.Optional[PackageInfo]) -> None:
-        assert value.package == expected
+    @inject_method()
+    def test_stub_file_is_valid(self, case: ModuleCase) -> None:
+        assert case.info.stub_file == case.valid_file.with_suffix(".pyi")
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                ModuleInfo("math"),
-                Path("math.py"),
-            ),
-            pytest.param(
-                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
-                Path("pyprotostuben") / "codegen" / "abc.py",
-            ),
-        ],
-    )
-    def test_file_ok(self, value: ModuleInfo, expected: Path) -> None:
-        assert value.file == expected
+    @inject_method()
+    def test_parts_are_valid(self, case: ModuleCase) -> None:
+        assert case.info.parts == case.valid_parts
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                ModuleInfo("math"),
-                Path("math.pyi"),
-            ),
-            pytest.param(
-                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
-                Path("pyprotostuben") / "codegen" / "abc.pyi",
-            ),
-        ],
-    )
-    def test_stub_file_ok(self, value: ModuleInfo, expected: Path) -> None:
-        assert value.stub_file == expected
+    @inject_method()
+    def test_qualname_is_valid(self, case: ModuleCase) -> None:
+        assert case.info.qualname == case.valid_qualname
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                ModuleInfo("math"),
-                ("math",),
-            ),
-            pytest.param(
-                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
-                ("pyprotostuben", "codegen", "abc"),
-            ),
-        ],
-    )
-    def test_parts_ok(self, value: ModuleInfo, expected: t.Sequence[str]) -> None:
-        assert value.parts == expected
+    @inject_method()
+    def test_build_or_none_from_parts_is_same_info(self, case: ModuleCase) -> None:
+        assert ModuleInfo.build_or_none(*case.info.parts) == case.info
 
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            pytest.param(
-                ModuleInfo("math"),
-                "math",
-            ),
-            pytest.param(
-                ModuleInfo("abc", PackageInfo("codegen", PackageInfo("pyprotostuben"))),
-                "pyprotostuben.codegen.abc",
-            ),
-        ],
-    )
-    def test_qualname_ok(self, value: ModuleInfo, expected: t.Sequence[str]) -> None:
-        assert value.qualname == expected
+    @inject_method()
+    def test_build_from_parts_is_same_info(self, case: ModuleCase) -> None:
+        assert ModuleInfo.build(*case.info.parts) == case.info
 
+    @inject_method()
+    def test_from_qualname_str_is_same_info(self, case: ModuleCase) -> None:
+        assert ModuleInfo.from_str(case.info.qualname) == case.info
 
-TYPES_CASES = pytest.mark.parametrize(
-    ("type_", "annotation", "info"),
-    [
-        pytest.param(
-            int,
-            "builtins.int",
-            NamedTypeInfo("int", ModuleInfo("builtins")),
-        ),
-        pytest.param(
-            float,
-            "builtins.float",
-            NamedTypeInfo("float", ModuleInfo("builtins")),
-        ),
-        pytest.param(
-            str,
-            "builtins.str",
-            NamedTypeInfo("str", ModuleInfo("builtins")),
-        ),
-        pytest.param(
-            list,
-            "builtins.list",
-            NamedTypeInfo("list", ModuleInfo("builtins")),
-        ),
-        pytest.param(
-            t.Literal["foo", "bar", "baz"],
-            "typing.Literal['foo', 'bar', 'baz']",
-            LiteralTypeInfo(values=("foo", "bar", "baz")),
-        ),
-        pytest.param(
-            t.Optional,
-            "typing.Optional",
-            NamedTypeInfo(
-                name="Optional",
-                module=ModuleInfo("typing"),
-            ),
-        ),
-        pytest.param(
-            t.Optional[int],
-            "typing.Optional[builtins.int]",
-            NamedTypeInfo(
-                name="Optional",
-                module=ModuleInfo("typing"),
-                type_params=(NamedTypeInfo("int", ModuleInfo("builtins")),),
-            ),
-        ),
-        pytest.param(
-            t.Union[int, str],
-            "typing.Union[builtins.int, builtins.str]",
-            NamedTypeInfo(
-                name="Union",
-                module=ModuleInfo("typing"),
-                type_params=(
-                    NamedTypeInfo("int", ModuleInfo("builtins")),
-                    NamedTypeInfo("str", ModuleInfo("builtins")),
-                ),
-            ),
-        ),
-        pytest.param(
-            t.Union[int, str, None],
-            "typing.Union[builtins.int, builtins.str, None]",
-            NamedTypeInfo(
-                name="Union",
-                module=ModuleInfo("typing"),
-                type_params=(
-                    NamedTypeInfo("int", ModuleInfo("builtins")),
-                    NamedTypeInfo("str", builtins_module_info()),
-                    none_type_info(),
-                ),
-            ),
-        ),
-        pytest.param(
-            t.Mapping[int, str],
-            "typing.Mapping[builtins.int, builtins.str]",
-            NamedTypeInfo(
-                name="Mapping",
-                module=ModuleInfo("typing"),
-                type_params=(
-                    NamedTypeInfo("int", builtins_module_info()),
-                    NamedTypeInfo("str", builtins_module_info()),
-                ),
-            ),
-        ),
-        pytest.param(
-            t.Mapping[int, t.Optional[str]],
-            "typing.Mapping[builtins.int, typing.Optional[builtins.str]]",
-            NamedTypeInfo(
-                name="Mapping",
-                module=ModuleInfo("typing"),
-                type_params=(
-                    NamedTypeInfo("int", builtins_module_info()),
-                    NamedTypeInfo(
-                        name="Optional",
-                        module=ModuleInfo("typing"),
-                        type_params=(NamedTypeInfo("str", builtins_module_info()),),
-                    ),
-                ),
-            ),
-        ),
-        pytest.param(
-            StubFoo,
-            "tests.stub.types.StubFoo",
-            NamedTypeInfo("StubFoo", ModuleInfo("types", PackageInfo("stub", PackageInfo("tests")))),
-        ),
-        pytest.param(
-            StubBar,
-            "tests.stub.types.StubBar",
-            NamedTypeInfo("StubBar", ModuleInfo("types", PackageInfo("stub", PackageInfo("tests")))),
-        ),
-        pytest.param(
-            StubBar[StubFoo],
-            "tests.stub.types.StubBar[tests.stub.types.StubFoo]",
-            NamedTypeInfo(
-                name="StubBar",
-                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
-                type_params=(NamedTypeInfo("StubFoo", ModuleInfo("types", PackageInfo("stub", PackageInfo("tests")))),),
-            ),
-        ),
-        pytest.param(
-            StubX.Y.Z,
-            "tests.stub.types.StubX.Y.Z",
-            NamedTypeInfo(
-                name="Z",
-                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
-                namespace=("StubX", "Y"),
-            ),
-        ),
-        pytest.param(
-            StubEnum,
-            "tests.stub.types.StubEnum",
-            EnumTypeInfo(
-                name="StubEnum",
-                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
-                values=(
-                    EnumTypeValue(
-                        name="FOO",
-                        value=1,
-                    ),
-                    EnumTypeValue(
-                        name="BAR",
-                        value=2,
-                    ),
-                ),
-            ),
-        ),
-        pytest.param(
-            StubCM,
-            "tests.stub.types.StubCM",
-            NamedTypeInfo(
-                name="StubCM",
-                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
-            ),
-        ),
-        pytest.param(
-            StubNode[int],
-            "tests.stub.types.StubNode[builtins.int]",
-            NamedTypeInfo(
-                name="StubNode",
-                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
-                type_params=(NamedTypeInfo("int", ModuleInfo("builtins")),),
-            ),
-        ),
-        pytest.param(
-            StubInt,
-            "tests.stub.types.StubInt",
-            NamedTypeInfo(
-                name="StubInt",
-                module=ModuleInfo("types", PackageInfo("stub", PackageInfo("tests"))),
-            ),
-            marks=(
-                pytest.mark.skipif(
-                    condition="sys.version_info < (3, 11)",
-                    reason="can't get StubInt qualname in python versions < 3.11",
-                ),
-            ),
-        ),
-        pytest.param(
-            StubUnionAlias,
-            "typing.Union["
-            "tests.stub.types.StubFoo, "
-            "tests.stub.types.StubBar[tests.stub.types.StubInt], "
-            "tests.stub.types.StubX"
-            "]",
-            NamedTypeInfo(
-                name="Union",
-                module=ModuleInfo(name="typing"),
-                type_params=(
-                    NamedTypeInfo(
-                        name="StubFoo",
-                        module=ModuleInfo(
-                            name="types",
-                            package=PackageInfo(name="stub", parent=PackageInfo(name="tests")),
-                        ),
-                    ),
-                    NamedTypeInfo(
-                        name="StubBar",
-                        module=ModuleInfo(
-                            name="types",
-                            package=PackageInfo(name="stub", parent=PackageInfo(name="tests")),
-                        ),
-                        type_params=(
-                            NamedTypeInfo(
-                                name="StubInt",
-                                module=ModuleInfo(
-                                    name="types",
-                                    package=PackageInfo(name="stub", parent=PackageInfo(name="tests")),
-                                ),
-                            ),
-                        ),
-                    ),
-                    NamedTypeInfo(
-                        name="StubX",
-                        module=ModuleInfo(
-                            name="types",
-                            package=PackageInfo(name="stub", parent=PackageInfo(name="tests")),
-                        ),
-                    ),
-                ),
-            ),
-            marks=(
-                pytest.mark.skipif(
-                    condition="sys.version_info < (3, 11)",
-                    reason="can't get StubInt qualname in python versions < 3.11",
-                ),
-            ),
-        ),
-        pytest.param(
-            StubUnionType,
-            "builtins.int | builtins.str | builtins.float | None",
-            UnionTypeInfo(
-                values=(
-                    NamedTypeInfo(name="int", module=ModuleInfo(name="builtins")),
-                    NamedTypeInfo(name="str", module=ModuleInfo(name="builtins")),
-                    NamedTypeInfo(name="float", module=ModuleInfo(name="builtins")),
-                    none_type_info(),
-                ),
-            ),
-            marks=(
-                pytest.mark.skipif(
-                    condition="sys.version_info < (3, 10)",
-                    reason="union types syntax is available since python version 3.10",
-                ),
-            ),
-        ),
-    ],
-)
+    @inject_method()
+    def test_from_python_module_is_same_info(self, case: ModuleCase) -> None:
+        assert ModuleInfo.from_module(importlib.import_module(case.info.qualname)) == case.info
 
 
 class TestTypeAnnotator:
-    @TYPES_CASES
-    def test_parse_ok(
+    @inject_method()
+    def test_annotate_is_valid(
         self,
+        case: TypeCase,
         type_annotator: TypeAnnotator,
-        type_: RuntimeType,
-        annotation: str,
-        info: TypeInfo,
     ) -> None:
-        assert type_annotator.parse(annotation) == info
+        assert type_annotator.annotate(case.info) == case.valid_annotation
 
-    @TYPES_CASES
-    def test_annotate_ok(
+    @inject_method()
+    def test_parse_annotation_is_same_info(
         self,
+        case: TypeCase,
         type_annotator: TypeAnnotator,
-        type_: RuntimeType,
-        annotation: str,
-        info: TypeInfo,
     ) -> None:
-        assert type_annotator.annotate(type_annotator.parse(annotation)) == annotation
+        assert type_annotator.parse(case.valid_annotation) == case.info
 
 
 class TestTypeInspector:
-    @TYPES_CASES
-    def test_inspect_ok(
+    @inject_method()
+    def test_inspect_python_type_is_same_info(
         self,
+        case: TypeCase,
         type_inspector: TypeInspector,
-        type_: RuntimeType,
-        annotation: str,
-        info: TypeInfo,
     ) -> None:
-        assert type_inspector.inspect(type_) == info
+        assert type_inspector.inspect(case.python_type) == case.info
 
 
 class TestTypeLoader:
-    @TYPES_CASES
-    def test_load_ok(
+    @inject_method()
+    def test_load_is_valid_python_type(
         self,
+        case: TypeCase,
         type_loader: TypeLoader,
         type_inspector: TypeInspector,
-        type_: RuntimeType,
-        annotation: str,
-        info: TypeInfo,
     ) -> None:
-        loaded = type_loader.load(info)
+        loaded = type_loader.load(case.info)
 
-        assert loaded == type_
-        assert t.get_origin(loaded) is t.get_origin(type_)
-        assert t.get_args(loaded) == t.get_args(type_)
+        assert loaded == case.python_type
+
+    @inject_method()
+    def test_load_origin_is_same_python_type_origin(
+        self,
+        case: TypeCase,
+        type_loader: TypeLoader,
+        type_inspector: TypeInspector,
+    ) -> None:
+        loaded = type_loader.load(case.info)
+
+        assert t.get_origin(loaded) is t.get_origin(case.python_type)
+
+    @inject_method()
+    def test_load_args_are_same_python_type_args(
+        self,
+        case: TypeCase,
+        type_loader: TypeLoader,
+        type_inspector: TypeInspector,
+    ) -> None:
+        loaded = type_loader.load(case.info)
+
+        assert t.get_args(loaded) == t.get_args(case.python_type)
 
     @pytest.mark.parametrize(
         ("info", "error"),
@@ -534,6 +160,6 @@ class TestTypeLoader:
             ),
         ],
     )
-    def test_load_error(self, type_loader: TypeLoader, info: TypeInfo, error: type[Exception]) -> None:
+    def test_load_raises_proper_error(self, type_loader: TypeLoader, info: TypeInfo, error: type[Exception]) -> None:
         with pytest.raises(error):
             type_loader.load(info)

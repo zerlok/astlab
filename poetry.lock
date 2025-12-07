@@ -315,14 +315,14 @@ dev = ["argcomplete", "attrs (>=19.2)", "hypothesis (>=3.56)", "mock", "requests
 
 [[package]]
 name = "pytest-case-provider"
-version = "0.4.1"
+version = "0.4.2"
 description = "Advanced pytest parametrization plugin that generates test case instances from sync or async factories."
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["dev"]
 files = [
-    {file = "pytest_case_provider-0.4.1-py3-none-any.whl", hash = "sha256:ad9b2f4c8abaadd9a0a836fcb80f8da92a1fa90dc5303026f6131610ee801f26"},
-    {file = "pytest_case_provider-0.4.1.tar.gz", hash = "sha256:831ab8d5ee5ae48a6718c8edc38bd95930eb317a413a202e1235045fcf753551"},
+    {file = "pytest_case_provider-0.4.2-py3-none-any.whl", hash = "sha256:1d398935ec8b99b939e3c91cd1847e35990d1ec9260a2702e1638705cf3f8a86"},
+    {file = "pytest_case_provider-0.4.2.tar.gz", hash = "sha256:5be2822b51c5078162b20a63d7ade9045ee86a54f1842690256c14db89515adf"},
 ]
 
 [package.dependencies]
