@@ -1,3 +1,4 @@
+import ast
 import operator
 import typing as t
 from dataclasses import dataclass
@@ -5,12 +6,10 @@ from dataclasses import dataclass
 from astlab.builder import ModuleASTBuilder, build_module, build_package
 from astlab.reader import parse_module
 from astlab.types import predef
-from astlab.writer import render_module
 from tests.marks import (
     FEATURE_FORWARD_REF,
     FEATURE_TYPE_ALIAS_SYNTAX,
     FEATURE_TYPE_VAR_SYNTAX,
-    FEATURE_TYPING_UNION_IS_UNION_TYPE,
     FEATURE_UNION_TYPE_SYNTAX,
 )
 
@@ -185,37 +184,21 @@ def build_typing_unions() -> BuilderCase:
         )
 
 
-@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
-def build_type_ref_runtime_types_before_314() -> BuilderCase:
+def build_type_ref_runtime_types() -> BuilderCase:
     with build_module("types") as mod:
         mod.assign_stmt("int_to_str", mod.type_ref(dict[int, str]).init())
         mod.assign_stmt("int_to_opt_str", mod.type_ref(dict[int, t.Optional[str]]).init())
+        mod.assign_stmt("int_dict_key_str_optional", mod.type_ref(int).dict_key(mod.type_ref(str).optional()).init())
 
         return BuilderCase(
             builder=mod,
             expected_code=normalize_code("""
                 import builtins
                 import typing
-            
+    
                 int_to_str = builtins.dict[builtins.int, builtins.str]()
                 int_to_opt_str = builtins.dict[builtins.int, typing.Optional[builtins.str]]()
-            """),
-        )
-
-
-@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_required()
-def build_type_ref_runtime_types_since_314() -> BuilderCase:
-    with build_module("types") as mod:
-        mod.assign_stmt("int_to_str", mod.type_ref(dict[int, str]).init())
-        mod.assign_stmt("int_to_opt_str", mod.type_ref(dict[int, t.Optional[str]]).init())
-
-        return BuilderCase(
-            builder=mod,
-            expected_code=normalize_code("""
-                import builtins
-            
-                int_to_str = builtins.dict[builtins.int, builtins.str]()
-                int_to_opt_str = builtins.dict[builtins.int, builtins.str | None]()
+                int_dict_key_str_optional = builtins.dict[builtins.int, typing.Optional[builtins.str]]()
             """),
         )
 
@@ -326,9 +309,9 @@ def build_node_t_syntax_before_312() -> BuilderCase:
         expected_code=normalize_code("""
             import builtins
             import typing
-        
+
             T = typing.TypeVar('T', bound=builtins.int)
-        
+
             class Node(typing.Generic[T]):
                 value: T
                 parent: typing.Optional['Node[T]'] = None
@@ -344,7 +327,7 @@ def build_node_t_syntax_312_313() -> BuilderCase:
         expected_code=normalize_code("""
             import builtins
             import typing
-    
+
             class Node[T : builtins.int]:
                 value: T
                 parent: typing.Optional['Node[T]'] = None
@@ -360,7 +343,7 @@ def build_node_t_syntax_since_314() -> BuilderCase:
         expected_code=normalize_code("""
             import builtins
             import typing
-        
+
             class Node[T : builtins.int]:
                 value: T
                 parent: typing.Optional[Node[T]] = None
@@ -408,7 +391,7 @@ def build_type_alias_syntax_before_312() -> BuilderCase:
         expected_code=normalize_code("""
             import builtins
             import typing
-        
+
             MyInt: typing.TypeAlias = builtins.int
             Json: typing.TypeAlias = typing.Union[
                 None,
@@ -434,7 +417,7 @@ def build_type_alias_syntax_312_313() -> BuilderCase:
         expected_code=normalize_code("""
             import builtins
             import typing
-        
+
             type MyInt = builtins.int
             type Json = typing.Union[
                 None,
@@ -458,7 +441,7 @@ def build_type_alias_syntax_since_314() -> BuilderCase:
         expected_code=normalize_code("""
             import builtins
             import typing
-        
+
             type MyInt = builtins.int
             type Json = typing.Union[
                 None,
@@ -491,7 +474,10 @@ def build_union_type_syntax_before_310() -> BuilderCase:
             import typing
 
             foo: typing.Union[builtins.int, builtins.str, None]
-            list_dict_foo: typing.Union[builtins.list[builtins.int], builtins.dict[builtins.str, typing.Union[builtins.int, builtins.str, None]]]
+            list_dict_foo: typing.Union[
+                builtins.list[builtins.int],
+                builtins.dict[builtins.str, typing.Union[builtins.int, builtins.str, None]]
+            ]
         """),
     )
 
@@ -502,7 +488,7 @@ def build_union_type_syntax_since_310() -> BuilderCase:
         builder=build_union_type_module(),
         expected_code=normalize_code("""
             import builtins
-        
+
             foo: builtins.int | builtins.str | None
             list_dict_foo: builtins.list[builtins.int] | builtins.dict[builtins.str, builtins.int | builtins.str | None]
         """),
@@ -510,4 +496,4 @@ def build_union_type_syntax_since_310() -> BuilderCase:
 
 
 def normalize_code(code: str) -> str:
-    return render_module(parse_module(code, indented=True))
+    return ast.unparse(parse_module(code, indented=True))
