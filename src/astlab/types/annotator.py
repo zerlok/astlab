@@ -92,7 +92,7 @@ class TypeAnnotator:
         return _ExprParser(self.__loader).parse(node)
 
     def __annotate_union_type(self, info: UnionTypeInfo) -> str:
-        if self.__version >= PythonVersion.PY312:
+        if self.__version >= PythonVersion.PY310:
             return " | ".join(self.annotate(val) for val in info.values)
 
         args = ", ".join(self.annotate(val) for val in info.values)
