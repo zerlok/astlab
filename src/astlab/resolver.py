@@ -5,7 +5,6 @@ __all__ = [
 ]
 
 import ast
-import sys
 import typing as t
 from dataclasses import replace
 from itertools import chain
@@ -22,9 +21,10 @@ from astlab.types import (
     TypeInspector,
     ellipsis_type_info,
     none_type_info,
-    predef,
 )
 from astlab.types.model import EnumTypeInfo, TypeVarInfo, UnionTypeInfo
+from astlab.types.predef import get_predef
+from astlab.version import PythonVersion
 
 
 class DefaultASTResolver(ASTResolver):
@@ -32,12 +32,14 @@ class DefaultASTResolver(ASTResolver):
         self,
         inspector: t.Optional[TypeInspector] = None,
         annotator: t.Optional[TypeAnnotator] = None,
+        python_version: t.Optional[PythonVersion] = None,
     ) -> None:
         self.__module: t.Optional[ModuleInfo] = None
         self.__namespace: t.Sequence[str] = ()
         self.__dependencies: t.MutableSet[ModuleInfo] = set[ModuleInfo]()
         self.__inspector = inspector if inspector is not None else TypeInspector()
-        self.__annotator = annotator if annotator is not None else TypeAnnotator()
+        self.__annotator = annotator if annotator is not None else TypeAnnotator(python_version=python_version)
+        self.__version = PythonVersion.get(python_version)
 
     @override
     def resolve_expr(self, expr: TypeExpr, *tail: str) -> ast.expr:
@@ -174,9 +176,8 @@ class DefaultASTResolver(ASTResolver):
 
         return node
 
-    if sys.version_info >= (3, 14):
-
-        def __build_union_expr(self, info: UnionTypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
+    def __build_union_expr(self, info: UnionTypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
+        if self.__version >= PythonVersion.PY314:
             head, *tail = info.values
             node = nodes[head]
 
@@ -185,21 +186,17 @@ class DefaultASTResolver(ASTResolver):
 
             return node
 
-        def __is_forward_ref(self, _: TypeInfo) -> bool:
-            return False
-
-    else:
-
-        def __build_union_expr(self, info: UnionTypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
-            union_named_type = predef().union.with_type_params(*info.values)
+        else:
+            union_named_type = get_predef().union.with_type_params(*info.values)
             return self.__build_expr(self.__resolve_dependency(union_named_type), nodes)
 
-        def __is_forward_ref(self, info: TypeInfo) -> bool:
-            return (
-                not isinstance(info, ModuleInfo)
-                and info.module == self.__module
-                and (*info.namespace, info.name) == self.__namespace
-            )
+    def __is_forward_ref(self, info: TypeInfo) -> bool:
+        return (
+            self.__version < PythonVersion.PY314
+            and not isinstance(info, ModuleInfo)
+            and info.module == self.__module
+            and (*info.namespace, info.name) == self.__namespace
+        )
 
     def __chain_attr(self, expr: ast.expr, *tail: str) -> ast.expr:
         for attr in tail:

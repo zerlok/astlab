@@ -29,6 +29,7 @@ from astlab.types.model import (
     ellipsis_type_info,
     none_type_info,
 )
+from astlab.version import PythonVersion
 
 if t.TYPE_CHECKING:
     from types import ModuleType
@@ -65,8 +66,13 @@ class TypeLoaderError(Exception):
 class TypeLoader:
     """Loads runtime type from provided info."""
 
-    def __init__(self, module: t.Optional[ModuleLoader] = None) -> None:
+    def __init__(
+        self,
+        module: t.Optional[ModuleLoader] = None,
+        python_version: t.Optional[PythonVersion] = None,
+    ) -> None:
         self.__module = module or ModuleLoader()
+        self.__version = PythonVersion.get(python_version)
 
     @lru_cache_method()
     def load(self, info: TypeInfo) -> RuntimeType:
@@ -138,14 +144,12 @@ class TypeLoader:
             msg = "module has not attribute"
             raise TypeLoaderError(msg, info) from err
 
-    if sys.version_info < (3, 10):
+    if sys.version_info >= (3, 10):
 
         def __load_union_type(self, info: UnionTypeInfo) -> RuntimeType:
-            return self.__parametrize_type(info, t.Union, info.values)
+            if self.__version < PythonVersion.PY310:
+                return self.__load_typing_union(info)
 
-    else:
-
-        def __load_union_type(self, info: UnionTypeInfo) -> RuntimeType:
             head, *tail = info.values
 
             rtt = self.load(head)
@@ -153,6 +157,14 @@ class TypeLoader:
                 rtt |= self.load(val)
 
             return rtt
+
+    else:
+
+        def __load_union_type(self, info: UnionTypeInfo) -> RuntimeType:
+            return self.__load_typing_union(info)
+
+    def __load_typing_union(self, info: UnionTypeInfo) -> RuntimeType:
+        return self.__parametrize_type(info, t.Union, info.values)
 
     def __parametrize_type(self, info: TypeInfo, rtt: RuntimeType, params: t.Sequence[TypeInfo]) -> RuntimeType:
         if not params:

@@ -15,6 +15,7 @@ if t.TYPE_CHECKING:
     from astlab._typing import Self
     from astlab.abc import ASTResolver
     from astlab.types import ModuleInfo, PackageInfo, TypeInspector
+    from astlab.version import PythonVersion
 
 
 @dataclass()
@@ -24,20 +25,26 @@ class Scope:
 
 
 class BuildContext:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
+        version: PythonVersion,
         packages: t.MutableSequence[PackageInfo],
         dependencies: t.MutableMapping[ModuleInfo, t.MutableSet[ModuleInfo]],
         scopes: t.MutableSequence[Scope],
         resolver: ASTResolver,
         inspector: TypeInspector,
     ) -> None:
+        self.__version = version
         self.__packages = packages
         self.__dependencies = dependencies
         self.__scopes = scopes
         self.__inspector = inspector
         self.__resolver = resolver
         self.__module: t.Optional[ModuleInfo] = None
+
+    @property
+    def version(self) -> PythonVersion:
+        return self.__version
 
     @property
     def module(self) -> ModuleInfo:

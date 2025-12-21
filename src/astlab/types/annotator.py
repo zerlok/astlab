@@ -28,14 +28,21 @@ from astlab.types.model import (
     ellipsis_type_info,
     none_type_info,
 )
+from astlab.types.predef import get_predef
+from astlab.version import PythonVersion
 
 
 # TODO: consider ast.unparse usage for building valid type annotation
 class TypeAnnotator:
     """Provides annotation string form type info and vice versa (parses annotation to type info)."""
 
-    def __init__(self, loader: t.Optional[TypeLoader] = None) -> None:
-        self.__loader = loader or TypeLoader()
+    def __init__(
+        self,
+        loader: t.Optional[TypeLoader] = None,
+        python_version: t.Optional[PythonVersion] = None,
+    ) -> None:
+        self.__loader = loader or TypeLoader(python_version=python_version)
+        self.__version = PythonVersion.get(python_version)
 
     @lru_cache_method()
     def annotate(self, info: TypeInfo) -> str:
@@ -67,7 +74,7 @@ class TypeAnnotator:
             annotation = info.qualname
 
         elif isinstance(info, UnionTypeInfo):
-            annotation = " | ".join(self.annotate(val) for val in info.values)
+            annotation = self.__annotate_union_type(info)
 
         else:
             assert_never(info)
@@ -83,6 +90,13 @@ class TypeAnnotator:
             raise ValueError(msg, qualname)
 
         return _ExprParser(self.__loader).parse(node)
+
+    def __annotate_union_type(self, info: UnionTypeInfo) -> str:
+        if self.__version >= PythonVersion.PY312:
+            return " | ".join(self.annotate(val) for val in info.values)
+
+        args = ", ".join(self.annotate(val) for val in info.values)
+        return f"{get_predef().union.qualname}[{args}]" if args else get_predef().union.qualname
 
 
 class _ExprParser(ast.NodeVisitor):

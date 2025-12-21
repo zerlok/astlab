@@ -27,7 +27,6 @@ import abc
 import ast
 import sys
 import typing as t
-import warnings
 from collections import defaultdict, deque
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -63,6 +62,7 @@ from astlab.types import (
     UnionTypeInfo,
     predef,
 )
+from astlab.version import PythonVersion
 from astlab.writer import render_module, write_module
 
 T_co = t.TypeVar("T_co", covariant=True)
@@ -74,10 +74,11 @@ def build_package(
     parent: t.Optional[PackageInfo] = None,
     resolver: t.Optional[ASTResolver] = None,
     inspector: t.Optional[TypeInspector] = None,
+    python_version: t.Union[PythonVersion, t.Sequence[int], None] = None,
 ) -> PackageASTBuilder:
     """Start python package builder."""
     return PackageASTBuilder(
-        context=_create_context(resolver, inspector),
+        context=_create_context(resolver, inspector, python_version),
         info=info if isinstance(info, PackageInfo) else PackageInfo(info, parent),
         modules={},
     )
@@ -88,10 +89,11 @@ def build_module(
     parent: t.Optional[PackageInfo] = None,
     resolver: t.Optional[ASTResolver] = None,
     inspector: t.Optional[TypeInspector] = None,
+    python_version: t.Union[PythonVersion, t.Sequence[int], None] = None,
 ) -> ModuleASTBuilder:
     """Start python module builder."""
     return ModuleASTBuilder(
-        context=_create_context(resolver, inspector),
+        context=_create_context(resolver, inspector, python_version),
         info=info if isinstance(info, ModuleInfo) else ModuleInfo(info, parent),
         body=[],
     )
@@ -100,14 +102,17 @@ def build_module(
 def _create_context(
     resolver: t.Optional[ASTResolver],
     inspector: t.Optional[TypeInspector],
+    python_version: t.Union[PythonVersion, t.Sequence[int], None],
 ) -> BuildContext:
+    version = PythonVersion.get(python_version)
     inspector = inspector if inspector is not None else TypeInspector()
 
     return BuildContext(
+        version=version,
         packages=[],
         dependencies=defaultdict(set),
         scopes=deque(),
-        resolver=resolver if resolver is not None else DefaultASTResolver(inspector),
+        resolver=resolver if resolver is not None else DefaultASTResolver(inspector, python_version=version),
         inspector=inspector,
     )
 
@@ -1357,7 +1362,9 @@ class TypeVarBuilder(_BaseBuilder, TypeDefinitionBuilder, ASTStatementBuilder):
         super().__init__(context)
         self.__name = name
         self.__module = self._context.module
-        self.__namespace = self._context.namespace if sys.version_info >= (3, 12) else self._context.namespace[:-1]
+        self.__namespace = (
+            self._context.namespace if context.version >= PythonVersion.PY312 else self._context.namespace[:-1]
+        )
         self.__variance = variance
         self.__constraints = list[TypeExpr](constraints or ())
         self.__lower = lower
@@ -1478,33 +1485,40 @@ class TypeAliasExpressionBuilder(AnnotationASTBuilder, TypeDefinitionBuilder, AS
                 msg = "type alias expression is not set"
                 raise IncompleteStatementError(msg, self)
 
-            return [
-                ast.TypeAlias(
-                    name=ast.Name(id=self.__info.name),
-                    value=self._normalize_expr(self.__expr),
-                    type_params=[tv.build_type_param() for tv in self.__type_vars],
-                )
-            ]
+            return (
+                [
+                    ast.TypeAlias(
+                        name=ast.Name(id=self.__info.name),
+                        value=self._normalize_expr(self.__expr),
+                        type_params=[tv.build_type_param() for tv in self.__type_vars],
+                    )
+                ]
+                if self._context.version >= PythonVersion.PY312
+                else self.__build_ann_assign()
+            )
 
     else:
 
         @override
         def build_stmt(self) -> t.Sequence[ast.stmt]:
-            if self.__expr is None:
-                msg = "type alias expression is not set"
-                raise IncompleteStatementError(msg, self)
+            return self.__build_ann_assign()
 
-            stmts = [stmt for tv in self.__type_vars for stmt in tv.build_stmt()]
-            stmts.append(
-                ast.AnnAssign(
-                    target=ast.Name(id=self.__info.name),
-                    annotation=self._normalize_expr(predef().type_alias),
-                    value=self._normalize_expr(self.__expr),
-                    simple=1,
-                )
+    def __build_ann_assign(self) -> t.Sequence[ast.stmt]:
+        if self.__expr is None:
+            msg = "type alias expression is not set"
+            raise IncompleteStatementError(msg, self)
+
+        stmts = [stmt for tv in self.__type_vars for stmt in tv.build_stmt()]
+        stmts.append(
+            ast.AnnAssign(
+                target=ast.Name(id=self.__info.name),
+                annotation=self._normalize_expr(predef().type_alias),
+                value=self._normalize_expr(self.__expr),
+                simple=1,
             )
+        )
 
-            return stmts
+        return stmts
 
 
 class TypeAliasStatementASTBuilder(_BaseBuilder, ASTStatementBuilder, TypeDefinitionBuilder):
@@ -1676,10 +1690,7 @@ class ClassStatementASTBuilder(
         if frozen:
             dc.kwarg("frozen", ast.Constant(value=frozen))
 
-        if kw_only:
-            if sys.version_info < (3, 10):
-                warnings.warn("`kw_only` is not supported by current python version", UserWarning, stacklevel=2)
-
+        if kw_only and self._context.version >= PythonVersion.PY310:
             dc.kwarg("kw_only", ast.Constant(value=kw_only))
 
         return self.decorators(dc)
@@ -1701,37 +1712,58 @@ class ClassStatementASTBuilder(
         # noinspection PyArgumentList
         @override
         def build_stmt(self) -> t.Sequence[ast.stmt]:
-            return [
-                ast.ClassDef(
-                    name=self.__info.name,
-                    bases=self.__build_bases(),
-                    keywords=self.__build_keywords(),
-                    body=self._normalize_body(self.__body, self.__docs),
-                    decorator_list=self.__build_decorators(),
-                    type_params=[tv.build_type_param() for tv in self.__type_vars],
-                ),
-            ]
+            return (
+                [
+                    ast.ClassDef(
+                        name=self.__info.name,
+                        bases=self.__build_bases(),
+                        keywords=self.__build_keywords(),
+                        body=self._normalize_body(self.__body, self.__docs),
+                        decorator_list=self.__build_decorators(),
+                        type_params=[tv.build_type_param() for tv in self.__type_vars],
+                    ),
+                ]
+                if self._context.version >= PythonVersion.PY312
+                else self.__build_type_vars_and_class()
+            )
 
     else:
         # noinspection PyArgumentList
         @override
         def build_stmt(self) -> t.Sequence[ast.stmt]:
-            stmts = [stmt for tv in self.__type_vars for stmt in tv.build_stmt()]
+            return self.__build_type_vars_and_class()
 
-            if self.__type_vars:
-                self.__bases.insert(0, predef().generic.with_type_params(*(tv.info for tv in self.__type_vars)))
+    def __build_type_vars_and_class(self) -> t.Sequence[ast.stmt]:
+        stmts = [stmt for tv in self.__type_vars for stmt in tv.build_stmt()]
 
-            stmts.append(
-                ast.ClassDef(
-                    name=self.__info.name,
-                    bases=self.__build_bases(),
-                    keywords=self.__build_keywords(),
-                    body=self._normalize_body(self.__body, self.__docs),
-                    decorator_list=self.__build_decorators(),
-                ),
+        if self.__type_vars:
+            self.__bases.insert(0, predef().generic.with_type_params(*(tv.info for tv in self.__type_vars)))
+
+        stmts.append(self.__build_class())
+
+        return stmts
+
+    if sys.version_info >= (3, 12):
+
+        def __build_class(self) -> ast.ClassDef:
+            return ast.ClassDef(
+                name=self.__info.name,
+                bases=self.__build_bases(),
+                keywords=self.__build_keywords(),
+                body=self._normalize_body(self.__body, self.__docs),
+                decorator_list=self.__build_decorators(),
+                type_params=[],
             )
+    else:
 
-            return stmts
+        def __build_class(self) -> ast.ClassDef:
+            return ast.ClassDef(
+                name=self.__info.name,
+                bases=self.__build_bases(),
+                keywords=self.__build_keywords(),
+                body=self._normalize_body(self.__body, self.__docs),
+                decorator_list=self.__build_decorators(),
+            )
 
     def __build_bases(self) -> list[ast.expr]:
         return [self._normalize_expr(base) for base in self.__bases]
