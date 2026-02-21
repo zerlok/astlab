@@ -155,14 +155,16 @@ def optional_type() -> TypeCase:
     )
 
 
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
 def optional_int_type() -> TypeCase:
     return TypeCase(
         python_type=t.Optional[int],
-        valid_annotation="typing.Optional[builtins.int]",
-        info=NamedTypeInfo(
-            name="Optional",
-            module=ModuleInfo("typing"),
-            type_params=(NamedTypeInfo("int", ModuleInfo("builtins")),),
+        valid_annotation="builtins.int | None",
+        info=UnionTypeInfo(
+            values=(
+                NamedTypeInfo("int", ModuleInfo("builtins")),
+                NamedTypeInfo("NoneType", ModuleInfo("builtins")),
+            ),
         ),
     )
 
@@ -175,15 +177,13 @@ def union_type() -> TypeCase:
     )
 
 
-@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
-def union_int_str_before_union_type_support() -> TypeCase:
+@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
+def union_int_str_before_union_type_syntax_support() -> TypeCase:
     return TypeCase(
         python_type=t.Union[int, str],
         valid_annotation="typing.Union[builtins.int, builtins.str]",
-        info=NamedTypeInfo(
-            name="Union",
-            module=ModuleInfo("typing"),
-            type_params=(
+        info=UnionTypeInfo(
+            values=(
                 NamedTypeInfo("int", ModuleInfo("builtins")),
                 NamedTypeInfo("str", ModuleInfo("builtins")),
             ),
@@ -205,15 +205,13 @@ def union_int_str_with_union_type_support() -> TypeCase:
     )
 
 
-@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
+@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
 def union_int_str_none_before_union_type_support() -> TypeCase:
     return TypeCase(
         python_type=t.Union[int, str, None],
         valid_annotation="typing.Union[builtins.int, builtins.str, None]",
-        info=NamedTypeInfo(
-            name="Union",
-            module=ModuleInfo("typing"),
-            type_params=(
+        info=UnionTypeInfo(
+            values=(
                 NamedTypeInfo("int", ModuleInfo("builtins")),
                 NamedTypeInfo("str", ModuleInfo("builtins")),
                 NamedTypeInfo("NoneType", ModuleInfo("builtins")),
@@ -252,7 +250,8 @@ def mapping_int_str_type() -> TypeCase:
     )
 
 
-def mapping_int_opt_str_type() -> TypeCase:
+@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
+def mapping_int_opt_str_type_without_union_type_syntax() -> TypeCase:
     return TypeCase(
         python_type=t.Mapping[int, t.Optional[str]],
         valid_annotation="typing.Mapping[builtins.int, typing.Optional[builtins.str]]",
@@ -261,10 +260,32 @@ def mapping_int_opt_str_type() -> TypeCase:
             module=ModuleInfo("typing"),
             type_params=(
                 NamedTypeInfo("int", ModuleInfo("builtins")),
-                NamedTypeInfo(
-                    name="Optional",
-                    module=ModuleInfo("typing"),
-                    type_params=(NamedTypeInfo("str", ModuleInfo("builtins")),),
+                UnionTypeInfo(
+                    values=(
+                        NamedTypeInfo("str", ModuleInfo("builtins")),
+                        NamedTypeInfo("NoneType", ModuleInfo("builtins")),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
+def mapping_int_opt_str_type_with_union_type_syntax() -> TypeCase:
+    return TypeCase(
+        python_type=t.Mapping[int, t.Optional[str]],
+        valid_annotation="typing.Mapping[builtins.int, builtins.str | None]",
+        info=NamedTypeInfo(
+            name="Mapping",
+            module=ModuleInfo("typing"),
+            type_params=(
+                NamedTypeInfo("int", ModuleInfo("builtins")),
+                UnionTypeInfo(
+                    values=(
+                        NamedTypeInfo("str", ModuleInfo("builtins")),
+                        NamedTypeInfo("NoneType", ModuleInfo("builtins")),
+                    ),
                 ),
             ),
         ),
@@ -362,8 +383,8 @@ def stub_alias_new_type() -> TypeCase:
 
 
 @FEATURE_TYPE_ALIAS_QUALNAME.mark_required()
-@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
-def stub_union_alias_before_union_type_support() -> TypeCase:
+@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
+def stub_union_alias_before_union_type_syntax_support() -> TypeCase:
     return TypeCase(
         python_type=StubUnionAlias,
         valid_annotation="typing.Union["
@@ -371,10 +392,8 @@ def stub_union_alias_before_union_type_support() -> TypeCase:
         "tests.stub.types.StubBar[tests.stub.types.StubInt], "
         "tests.stub.types.StubX"
         "]",
-        info=NamedTypeInfo(
-            name="Union",
-            module=ModuleInfo(name="typing"),
-            type_params=(
+        info=UnionTypeInfo(
+            values=(
                 NamedTypeInfo(
                     name="StubFoo",
                     module=ModuleInfo(

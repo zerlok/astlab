@@ -9,7 +9,7 @@ from tests.marks import (
     FEATURE_FORWARD_REF,
     FEATURE_TYPE_ALIAS_SYNTAX,
     FEATURE_TYPE_VAR_SYNTAX,
-    FEATURE_TYPING_UNION_IS_UNION_TYPE,
+    FEATURE_UNION_TYPE_SYNTAX,
 )
 
 
@@ -27,6 +27,7 @@ def empty_module() -> BuilderCase:
         )
 
 
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
 def simple_module() -> BuilderCase:
     with (
         build_module("simple") as mod,
@@ -54,7 +55,6 @@ def simple_module() -> BuilderCase:
                 import abc
                 import builtins
                 import dataclasses
-                import typing
 
                 class Foo:
                     """Docstring Foo."""
@@ -62,7 +62,7 @@ def simple_module() -> BuilderCase:
                     @dataclasses.dataclass()
                     class Bar:
                         spam: builtins.int
-                    bars: typing.Optional[builtins.list[Bar]]
+                    bars: builtins.list[Bar] | None
 
                     def __init__(self, my_bar: Bar) -> None:
                         self.__my_bar = my_bar
@@ -139,50 +139,7 @@ def div_expr() -> BuilderCase:
         return BuilderCase(builder=mod, expected_code="y = x / 2")
 
 
-def typing_optionals() -> BuilderCase:
-    with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
-        opt.field_def("my_generic_option_int", opt.generic_type(t.Optional, int))
-        opt.field_def("my_optional_str", opt.type_ref(str).optional())
-        opt.field_def("my_optional_list_of_int", opt.type_ref(int).list().optional())
-        opt.field_def("my_list_of_optional_int", opt.type_ref(int).optional().list())
-        opt.field_def("my_optional_str_default", opt.type_ref(str).optional(), opt.none())
-
-        return BuilderCase(
-            builder=mod,
-            expected_code=normalize_code("""
-                import builtins
-                import typing
-
-                class MyOptions:
-                    my_generic_option_int: typing.Optional[builtins.int]
-                    my_optional_str: typing.Optional[builtins.str]
-                    my_optional_list_of_int: typing.Optional[builtins.list[builtins.int]]
-                    my_list_of_optional_int: builtins.list[typing.Optional[builtins.int]]
-                    my_optional_str_default: typing.Optional[builtins.str] = None
-            """),
-        )
-
-
-def typing_unions() -> BuilderCase:
-    with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
-        opt.field_def("my_union_str_none", opt.union_type(str, None))
-        opt.field_def("my_union_int_str_none", opt.union_type(int, str, None))
-        opt.field_def("my_str_or_list_of_str", opt.union_type(str, list[str], None))
-
-        return BuilderCase(
-            builder=mod,
-            expected_code=normalize_code("""
-                import builtins
-                import typing
-
-                class MyOptions:
-                    my_union_str_none: typing.Union[builtins.str, None]
-                    my_union_int_str_none: typing.Union[builtins.int, builtins.str, None]
-                    my_str_or_list_of_str: typing.Union[builtins.str, builtins.list[builtins.str], None]
-            """),
-        )
-
-
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
 def type_ref_runtime_types() -> BuilderCase:
     with build_module("types") as mod:
         mod.assign_stmt("int_to_str", mod.type_ref(dict[int, str]).init())
@@ -193,11 +150,10 @@ def type_ref_runtime_types() -> BuilderCase:
             builder=mod,
             expected_code=normalize_code("""
                 import builtins
-                import typing
 
                 int_to_str = builtins.dict[builtins.int, builtins.str]()
-                int_to_opt_str = builtins.dict[builtins.int, typing.Optional[builtins.str]]()
-                int_dict_key_str_optional = builtins.dict[builtins.int, typing.Optional[builtins.str]]()
+                int_to_opt_str = builtins.dict[builtins.int, builtins.str | None]()
+                int_dict_key_str_optional = builtins.dict[builtins.int, builtins.str | None]()
             """),
         )
 
@@ -302,7 +258,8 @@ def build_node_t_module() -> ModuleASTBuilder:
 
 
 @FEATURE_TYPE_VAR_SYNTAX.mark_obsolete()
-def node_t_syntax_before_312() -> BuilderCase:
+@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
+def node_t_before_type_var_syntax_optional() -> BuilderCase:
     return BuilderCase(
         builder=build_node_t_module(),
         expected_code=normalize_code("""
@@ -318,34 +275,50 @@ def node_t_syntax_before_312() -> BuilderCase:
     )
 
 
-@FEATURE_TYPE_VAR_SYNTAX.mark_required()
-@FEATURE_FORWARD_REF.mark_obsolete()
-def node_t_syntax_312_313() -> BuilderCase:
+@FEATURE_TYPE_VAR_SYNTAX.mark_obsolete()
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
+def node_t_before_type_var_syntax() -> BuilderCase:
     return BuilderCase(
         builder=build_node_t_module(),
         expected_code=normalize_code("""
             import builtins
             import typing
 
+            T = typing.TypeVar('T', bound=builtins.int)
+
+            class Node(typing.Generic[T]):
+                value: T
+                parent: 'Node[T]' | None = None
+        """),
+    )
+
+
+@FEATURE_TYPE_VAR_SYNTAX.mark_required()
+@FEATURE_FORWARD_REF.mark_obsolete()
+def node_t_since_type_var_syntax_before_forward_ref() -> BuilderCase:
+    return BuilderCase(
+        builder=build_node_t_module(),
+        expected_code=normalize_code("""
+            import builtins
+
             class Node[T : builtins.int]:
                 value: T
-                parent: typing.Optional['Node[T]'] = None
+                parent: 'Node[T]' | None = None
         """),
     )
 
 
 @FEATURE_TYPE_VAR_SYNTAX.mark_required()
 @FEATURE_FORWARD_REF.mark_required()
-def node_t_syntax_since_314() -> BuilderCase:
+def node_t_since_type_var_syntax_and_forward_ref() -> BuilderCase:
     return BuilderCase(
         builder=build_node_t_module(),
         expected_code=normalize_code("""
             import builtins
-            import typing
 
             class Node[T : builtins.int]:
                 value: T
-                parent: typing.Optional[Node[T]] = None
+                parent: Node[T] | None = None
         """),
     )
 
@@ -383,7 +356,9 @@ def build_type_alias_module() -> ModuleASTBuilder:
         return mod
 
 
+@FEATURE_FORWARD_REF.mark_obsolete()
 @FEATURE_TYPE_ALIAS_SYNTAX.mark_obsolete()
+@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
 def type_aliases_before_type_alias_support() -> BuilderCase:
     return BuilderCase(
         builder=build_type_alias_module(),
@@ -410,6 +385,8 @@ def type_aliases_before_type_alias_support() -> BuilderCase:
 
 @FEATURE_FORWARD_REF.mark_obsolete()
 @FEATURE_TYPE_ALIAS_SYNTAX.mark_required()
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
+@FEATURE_TYPE_VAR_SYNTAX.mark_required()
 def type_aliases_with_type_alias_syntax_before_forward_ref_support() -> BuilderCase:
     return BuilderCase(
         builder=build_type_alias_module(),
@@ -418,22 +395,24 @@ def type_aliases_with_type_alias_syntax_before_forward_ref_support() -> BuilderC
             import typing
 
             type MyInt = builtins.int
-            type Json = typing.Union[
-                None,
-                builtins.bool,
-                builtins.int,
-                builtins.float,
-                builtins.str,
-                builtins.list['Json'],
-                builtins.dict[builtins.str, 'Json']
-            ]
-            type Nested[T1, T2] = typing.Union[T1, T2, typing.Sequence['Nested[T1, T2]']]
+            type Json = (
+                None
+                | builtins.bool
+                | builtins.int
+                | builtins.float
+                | builtins.str
+                | builtins.list['Json']
+                | builtins.dict[builtins.str, 'Json']
+            )
+            type Nested[T1, T2] = T1 | T2 | typing.Sequence['Nested[T1, T2]']
         """),
     )
 
 
-@FEATURE_TYPE_ALIAS_SYNTAX.mark_required()
 @FEATURE_FORWARD_REF.mark_required()
+@FEATURE_TYPE_ALIAS_SYNTAX.mark_required()
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
+@FEATURE_TYPE_VAR_SYNTAX.mark_required()
 def type_aliases_since_type_alias_syntax_and_forward_ref_support() -> BuilderCase:
     return BuilderCase(
         builder=build_type_alias_module(),
@@ -442,16 +421,16 @@ def type_aliases_since_type_alias_syntax_and_forward_ref_support() -> BuilderCas
             import typing
 
             type MyInt = builtins.int
-            type Json = typing.Union[
-                None,
-                builtins.bool,
-                builtins.int,
-                builtins.float,
-                builtins.str,
-                builtins.list[Json],
-                builtins.dict[builtins.str, Json]
-            ]
-            type Nested[T1, T2] = typing.Union[T1, T2, typing.Sequence[Nested[T1, T2]]]
+            type Json = (
+                None
+                | builtins.bool
+                | builtins.int
+                | builtins.float
+                | builtins.str
+                | builtins.list[Json]
+                | builtins.dict[builtins.str, Json]
+            )
+            type Nested[T1, T2] = T1 | T2 | typing.Sequence[Nested[T1, T2]]
         """),
     )
 
@@ -465,7 +444,7 @@ def build_union_type_module() -> ModuleASTBuilder:
         return mod
 
 
-@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_obsolete()
+@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
 def union_types_before_union_type_syntax_support() -> BuilderCase:
     return BuilderCase(
         builder=build_union_type_module(),
@@ -482,8 +461,8 @@ def union_types_before_union_type_syntax_support() -> BuilderCase:
     )
 
 
-@FEATURE_TYPING_UNION_IS_UNION_TYPE.mark_required()
-def union_types_since_complete_union_type_support() -> BuilderCase:
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
+def union_types_since_union_type_syntax_support() -> BuilderCase:
     return BuilderCase(
         builder=build_union_type_module(),
         expected_code=normalize_code("""
@@ -493,6 +472,73 @@ def union_types_since_complete_union_type_support() -> BuilderCase:
             list_dict_foo: builtins.list[builtins.int] | builtins.dict[builtins.str, builtins.int | builtins.str | None]
         """),
     )
+
+
+def build_optional_module() -> ModuleASTBuilder:
+    with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
+        opt.field_def("my_generic_option_int", opt.generic_type(t.Optional, int))
+        opt.field_def("my_optional_str", opt.type_ref(str).optional())
+        opt.field_def("my_optional_list_of_int", opt.type_ref(int).list().optional())
+        opt.field_def("my_list_of_optional_int", opt.type_ref(int).optional().list())
+        opt.field_def("my_optional_str_default", opt.type_ref(str).optional(), opt.none())
+
+        return mod
+
+
+@FEATURE_UNION_TYPE_SYNTAX.mark_obsolete()
+def typing_optionals_before_union_type_syntax() -> BuilderCase:
+    return BuilderCase(
+        builder=build_optional_module(),
+        expected_code=normalize_code("""
+            import builtins
+            import typing
+
+            class MyOptions:
+                my_generic_option_int: typing.Optional[builtins.int]
+                my_optional_str: typing.Optional[builtins.str]
+                my_optional_list_of_int: typing.Optional[builtins.list[builtins.int]]
+                my_list_of_optional_int: builtins.list[typing.Optional[builtins.int]]
+                my_optional_str_default: typing.Optional[builtins.str] = None
+        """),
+    )
+
+
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
+def typing_optionals_since_union_type_syntax() -> BuilderCase:
+    return BuilderCase(
+        builder=build_optional_module(),
+        expected_code=normalize_code("""
+            import builtins
+            import typing
+
+            class MyOptions:
+                my_generic_option_int: typing.Optional[builtins.int]
+                my_optional_str: builtins.str | None
+                my_optional_list_of_int: builtins.list[builtins.int] | None
+                my_list_of_optional_int: builtins.list[builtins.int | None]
+                my_optional_str_default: builtins.str | None = None
+        """),
+    )
+
+
+@FEATURE_UNION_TYPE_SYNTAX.mark_required()
+def typing_unions_since_union_type_syntax() -> BuilderCase:
+    with build_module("opts") as mod, mod.class_def("MyOptions") as opt:
+        opt.field_def("my_union_str_none", opt.union_type(str, None))
+        opt.field_def("my_union_int_str_none", opt.union_type(int, str, None))
+        opt.field_def("my_str_or_list_of_str", opt.union_type(str, list[str], None))
+
+        return BuilderCase(
+            builder=mod,
+            expected_code=normalize_code("""
+                import builtins
+
+                class MyOptions:
+                    my_union_str_none: builtins.str | None
+                    my_union_int_str_none: builtins.int | builtins.str | None
+                    my_str_or_list_of_str: builtins.str | builtins.list[builtins.str] | None
+            """),
+        )
 
 
 def normalize_code(code: str) -> str:

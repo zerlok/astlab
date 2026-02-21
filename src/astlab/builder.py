@@ -104,7 +104,7 @@ def _create_context(
     inspector: t.Optional[TypeInspector],
     python_version: t.Union[PythonVersion, t.Sequence[int], None],
 ) -> BuildContext:
-    version = PythonVersion.get(python_version)
+    version = PythonVersion.parse(python_version)
     inspector = inspector if inspector is not None else TypeInspector()
 
     return BuildContext(
@@ -476,7 +476,11 @@ class TypeRefBuilder(_BaseBuilder, TypeDefinitionBuilder, ASTExpressionBuilder):
             inner: t.Callable[[TypeInfo], TypeInfo],
             info: TypeInfo,
         ) -> TypeInfo:
-            return predef().optional.with_type_params(inner(info))
+            return (
+                UnionTypeInfo(values=(inner(info), predef().none))
+                if self._context.version >= PythonVersion.PY310
+                else predef().optional.with_type_params(inner(info))
+            )
 
         return self.__wrap(transform)
 
@@ -677,11 +681,23 @@ class AnnotationASTBuilder(_BaseBuilder):
         )
 
     def optional_type(self, of_type: TypeExpr) -> Expr:
-        return self.generic_type(predef().optional, of_type)
+        return (
+            self.union_type(of_type, predef().none)
+            if self._context.version >= PythonVersion.PY310
+            else self.generic_type(predef().optional, of_type)
+        )
 
     def union_type(self, *params: TypeExpr, normalize: bool = False) -> Expr:
         if not params:
             return self._normalize_expr(predef().no_return)
+
+        if self._context.version >= PythonVersion.PY310:
+            head, *other = params
+            node = self._normalize_expr(head)
+            for param in other:
+                node = ast.BinOp(node, ast.BitOr(), self._normalize_expr(param))
+
+            return node
 
         if normalize and len(params) == 1:
             return self._normalize_expr(params[0])

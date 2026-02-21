@@ -42,7 +42,7 @@ class TypeAnnotator:
         python_version: t.Optional[PythonVersion] = None,
     ) -> None:
         self.__loader = loader or TypeLoader(python_version=python_version)
-        self.__version = PythonVersion.get(python_version)
+        self.__version = PythonVersion.parse(python_version)
 
     @lru_cache_method()
     def annotate(self, info: TypeInfo) -> str:
@@ -94,6 +94,9 @@ class TypeAnnotator:
     def __annotate_union_type(self, info: UnionTypeInfo) -> str:
         if self.__version >= PythonVersion.PY310:
             return " | ".join(self.annotate(val) for val in info.values)
+
+        if len(info.values) == 2 and info.values[1] == get_predef().none:  # noqa: PLR2004
+            return f"{get_predef().optional.qualname}[{self.annotate(info.values[0])}]"
 
         args = ", ".join(self.annotate(val) for val in info.values)
         return f"{get_predef().union.qualname}[{args}]" if args else get_predef().union.qualname
@@ -167,13 +170,18 @@ class _ExprParser(ast.NodeVisitor):
                 self.__info = LiteralTypeInfo(values=tuple(_LiteralValueExtractor().extract(node)))
 
             else:
-                self.__info = replace(
-                    self.__info,
-                    type_params=tuple(
-                        self.__parse_nested(*node.slice.elts)
-                        if isinstance(node.slice, ast.Tuple)
-                        else self.__parse_nested(node.slice)
-                    ),
+                nested = tuple(
+                    self.__parse_nested(*node.slice.elts)
+                    if isinstance(node.slice, ast.Tuple)
+                    else self.__parse_nested(node.slice)
+                )
+
+                self.__info = (
+                    UnionTypeInfo(values=(*nested, get_predef().none))
+                    if self.__info.qualname == "typing.Optional"
+                    else UnionTypeInfo(values=nested)
+                    if self.__info.qualname == "typing.Union"
+                    else replace(self.__info, type_params=nested)
                 )
 
     @override

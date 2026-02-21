@@ -3,6 +3,7 @@ import sys
 import typing as t
 
 
+# TODO: add parameter for `click` (to easily specify versions and parse str to version enum).
 class PythonVersion(enum.Enum):
     PY39 = (3, 9)
     PY310 = (3, 10)
@@ -12,15 +13,14 @@ class PythonVersion(enum.Enum):
     PY314 = (3, 14)
 
     @classmethod
-    def get(cls, value: t.Union["PythonVersion", t.Sequence[int], None] = None) -> "PythonVersion":
+    def parse(cls, value: t.Union["PythonVersion", t.Sequence[int], None] = None) -> "PythonVersion":
         if isinstance(value, PythonVersion):
+            cls.__validate(value.value)
             return value
 
         else:
             target = tuple(value[:2]) if value is not None else sys.version_info[:2]  # type: ignore[misc]
-
             cls.__validate(target)
-
             return cls(target) if target <= max(cls).value else max(cls)
 
     def __lt__(self, other: object) -> bool:

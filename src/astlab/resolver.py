@@ -37,9 +37,9 @@ class DefaultASTResolver(ASTResolver):
         self.__module: t.Optional[ModuleInfo] = None
         self.__namespace: t.Sequence[str] = ()
         self.__dependencies: t.MutableSet[ModuleInfo] = set[ModuleInfo]()
-        self.__inspector = inspector if inspector is not None else TypeInspector()
+        self.__inspector = inspector if inspector is not None else TypeInspector(python_version=python_version)
         self.__annotator = annotator if annotator is not None else TypeAnnotator(python_version=python_version)
-        self.__version = PythonVersion.get(python_version)
+        self.__version = PythonVersion.parse(python_version)
 
     @override
     def resolve_expr(self, expr: TypeExpr, *tail: str) -> ast.expr:
@@ -177,7 +177,7 @@ class DefaultASTResolver(ASTResolver):
         return node
 
     def __build_union_expr(self, info: UnionTypeInfo, nodes: t.Mapping[TypeInfo, ast.expr]) -> ast.expr:
-        if self.__version >= PythonVersion.PY314:
+        if self.__version >= PythonVersion.PY310:
             head, *tail = info.values
             node = nodes[head]
 

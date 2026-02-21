@@ -98,15 +98,14 @@ with astlab.package("main") as main:
 print(spam.render())
 ```
 
-#### Output
+#### Output (python >= 3.10)
 
 ```python
 import main.foo
-import typing
 
 class Eggs(main.foo.Bar):
 
-    def do_stuff(self) -> typing.Optional[main.foo.Bar]:
+    def do_stuff(self) -> main.foo.Bar | None:
         pass
 ```
 
@@ -125,12 +124,12 @@ import astlab
 with astlab.module("generic") as mod:
     with mod.class_def("Node") as node, node.type_var("T").lower(int) as T:
         node.field_def("value", T)
-        node.field_def("parent", node.ref().type_params(type_var).optional(), mod.none())
+        node.field_def("parent", node.ref().type_params(T).optional(), mod.none())
 
 print(mod.render())
 ```
 
-#### Output (python < 3.12)
+#### Output (python 3.10, 3.11)
 
 ```python
 import builtins
@@ -140,7 +139,7 @@ T = typing.TypeVar('T', bound=builtins.int)
 
 class Node(typing.Generic[T]):
     value: T
-    parent: typing.Optional['Node[T]'] = None
+    parent: 'Node[T] | None' = None
 ```
 
 #### Output (python 3.12, 3.13)
@@ -151,7 +150,7 @@ import typing
 
 class Node[T: builtins.int]:
     value: T
-    parent: typing.Optional['Node[T]'] = None
+    parent: 'Node[T] | None' = None
 ```
 
 #### Output (python ≥ 3.14)
@@ -162,7 +161,7 @@ import typing
 
 class Node[T: builtins.int]:
     value: T
-    parent: typing.Optional[Node[T]] = None
+    parent: Node[T] | None = None
 ```
 
 ---
@@ -200,30 +199,22 @@ with astlab.module("alias") as mod:
     ):
         nested_alias.assign(
             nested_alias.union_type(
-                T
+                T,
                 nested_alias.sequence_type(nested_alias.type_params(T)),
             )
         )
 ```
 
-#### Output (python < 3.12)
+#### Output (python 3.10, 3.11)
 
 ```python
 import builtins
 import typing
 
 MyInt: typing.TypeAlias = builtins.int
-Json: typing.TypeAlias = typing.Union[
-    None,
-    builtins.bool,
-    builtins.int,
-    builtins.float,
-    builtins.str,
-    builtins.list['Json'],
-    builtins.dict[builtins.str, 'Json'],
-]
+Json: typing.TypeAlias = None | builtins.bool | builtins.int | builtins.float | builtins.str | builtins.list['Json'] | builtins.dict[builtins.str, 'Json']
 T = typing.TypeVar("T")
-Nested: typing.TypeAlias = typing.Union[T, typing.Sequence['Nested[T]']]
+Nested: typing.TypeAlias = T | typing.Sequence['Nested[T]']
 ```
 
 #### Output (python 3.12, 3.13)
@@ -233,16 +224,8 @@ import builtins
 import typing
 
 type MyInt = builtins.int
-type Json = typing.Union[
-    None,
-    builtins.bool,
-    builtins.int,
-    builtins.float,
-    builtins.str,
-    builtins.list['Json'],
-    builtins.dict[builtins.str, 'Json'],
-]
-type Nested[T] = typing.Union[T, typing.Sequence['Nested[T]']]
+type Json =  None | builtins.bool | builtins.int | builtins.float | builtins.str | builtins.list['Json'] | builtins.dict[builtins.str, 'Json']
+type Nested[T] = T | typing.Sequence['Nested[T]']
 ```
 
 #### Output (python ≥ 3.14)
@@ -252,14 +235,6 @@ import builtins
 import typing
 
 type MyInt = builtins.int
-type Json = typing.Union[
-    None,
-    builtins.bool,
-    builtins.int,
-    builtins.float,
-    builtins.str,
-    builtins.list[Json],
-    builtins.dict[builtins.str, Json],
-]
-type Nested[T] = typing.Union[T, typing.Sequence[Nested[T]]]
+type Json =  None | builtins.bool | builtins.int | builtins.float | builtins.str | builtins.list[Json] | builtins.dict[builtins.str, Json]
+type Nested[T] = T | typing.Sequence[Nested[T]]
 ```

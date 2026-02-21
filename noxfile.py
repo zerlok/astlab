@@ -1,3 +1,6 @@
+import json
+import os
+
 import nox
 
 # TODO: load supported versions from pyproject.toml
@@ -20,5 +23,6 @@ def run_mypy(session: nox.Session) -> None:
 
 @nox.session(name="pytest", python=PYTHON_VERSIONS, reuse_venv=True)
 def run_pytest(session: nox.Session) -> None:
+    args = json.loads(os.getenv("NOX_PYTEST_ARGS", json.dumps(["--cov-report=xml"])))
     session.run("poetry", "install", "--all-extras", external=True)
-    session.run("poetry", "run", "pytest", "--cov-report=xml", external=True)
+    session.run("poetry", "run", "pytest", *args, external=True)

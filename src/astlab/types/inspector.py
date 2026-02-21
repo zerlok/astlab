@@ -17,7 +17,6 @@ from astlab.types.model import (
     EnumTypeInfo,
     EnumTypeValue,
     LiteralTypeInfo,
-    LiteralTypeValue,
     ModuleInfo,
     NamedTypeInfo,
     RuntimeType,
@@ -28,6 +27,7 @@ from astlab.types.model import (
     none_type_info,
     typing_module_info,
 )
+from astlab.version import PythonVersion
 
 if sys.version_info >= (3, 10):
     UnionType = types.UnionType
@@ -41,6 +41,9 @@ else:
 class TypeInspector:
     """Provides type info from runtime type."""
 
+    def __init__(self, python_version: t.Optional[PythonVersion] = None) -> None:
+        self.__version = PythonVersion.parse(python_version)
+
     @lru_cache_method()
     def inspect(self, type_: RuntimeType) -> TypeInfo:
         if type_ is None:
@@ -53,55 +56,55 @@ class TypeInspector:
             type_,
             t._LiteralGenericAlias,  # type: ignore[attr-defined] # noqa: SLF001
         ):
-            return LiteralTypeInfo(values=self.__extract_literals(type_))
+            return self.__inspect_literal_type(type_)
 
-        elif isinstance(type_, UnionType):
-            origin, args = self.__unpack_generic(type_)
-            type_params = tuple(self.inspect(arg) for arg in args)
-            return (
-                UnionTypeInfo(values=type_params)
-                if origin is not t.Optional
-                else NamedTypeInfo("Optional", ModuleInfo("typing"), type_params=type_params)
-            )
+        elif isinstance(type_, UnionType) or t.get_origin(type_) is t.Union:
+            return self.__inspect_union_type(type_)
 
         else:
             return self.__inspect_named_type(type_)
 
-    def __extract_literals(self, type_: RuntimeType) -> t.Sequence[LiteralTypeValue]:
-        args = t.get_args(type_)
+    def __inspect_literal_type(self, type_: RuntimeType) -> LiteralTypeInfo:
+        values = t.get_args(type_)
 
-        if not args or not all(arg is not None or isinstance(arg, (bool, int, bytes, str)) for arg in args):
+        if not values or not all(val is not None or isinstance(val, (bool, int, bytes, str)) for val in values):
             msg = "invalid literal type"
             raise TypeError(msg, type_)
 
-        return args
+        return LiteralTypeInfo(values=values)
+
+    def __inspect_union_type(self, type_: RuntimeType) -> TypeInfo:
+        type_params = self.__unpack_type_params(type_)
+        values = tuple(self.inspect(param) for param in type_params)
+
+        return (
+            UnionTypeInfo(values=values)
+            # if self.__version >= PythonVersion.PY310 or len(values) != 2 or values[1] != get_predef().none
+            # else replace(get_predef().optional, type_params=values[:1])
+        )
 
     def __inspect_named_type(self, type_: RuntimeType) -> TypeInfo:
-        origin, type_params = self.__unpack_generic(type_)
-        module, namespace, name = self.__get_module_naming(origin)
+        type_params = self.__unpack_type_params(type_)
+        module, namespace, name = self.__get_module_naming(type_)
 
-        if isinstance(origin, t.TypeVar):
+        if isinstance(type_, t.TypeVar):
             return TypeVarInfo(
-                name=origin.__name__,
+                name=type_.__name__,
                 module=module,
                 namespace=namespace,
                 variance=(
-                    "covariant"
-                    if origin.__covariant__
-                    else "contravariant"
-                    if origin.__contravariant__
-                    else "invariant"
+                    "covariant" if type_.__covariant__ else "contravariant" if type_.__contravariant__ else "invariant"
                 ),
-                constraints=tuple(self.inspect(co) for co in origin.__constraints__),
-                lower=self.inspect(origin.__bound__) if origin.__bound__ is not None else None,
+                constraints=tuple(self.inspect(co) for co in type_.__constraints__),
+                lower=self.inspect(type_.__bound__) if type_.__bound__ is not None else None,
             )
 
-        elif isinstance(origin, type) and issubclass(origin, enum.Enum):
+        elif isinstance(type_, type) and issubclass(type_, enum.Enum):
             return EnumTypeInfo(
                 name=name,
                 module=module,
                 namespace=tuple(namespace),
-                values=tuple(EnumTypeValue(name=enum_value.name, value=enum_value.value) for enum_value in origin),
+                values=tuple(EnumTypeValue(name=enum_value.name, value=enum_value.value) for enum_value in type_),
             )
 
         else:
@@ -109,7 +112,7 @@ class TypeInspector:
                 name=name,
                 module=module,
                 namespace=tuple(namespace),
-                type_params=tuple(self.inspect(type_param) for type_param in type_params),
+                type_params=tuple(self.inspect(param) for param in type_params),
             )
 
     if sys.version_info >= (3, 11):
@@ -154,12 +157,6 @@ class TypeInspector:
 
             return module, namespace, name
 
-    def __unpack_generic(self, type_: RuntimeType) -> tuple[RuntimeType, t.Sequence[RuntimeType]]:
-        origin: t.Optional[RuntimeType] = t.get_origin(type_)
+    def __unpack_type_params(self, type_: RuntimeType) -> t.Sequence[RuntimeType]:
         args: t.Optional[t.Sequence[RuntimeType]] = t.get_args(type_)
-
-        # patch Union[T, None] => Optional[T]
-        if origin is t.Union and args is not None and len(args) == 2 and args[1] is type(None):  # noqa: PLR2004
-            return t.Optional, args[:1]
-
-        return type_, args or ()
+        return args or ()

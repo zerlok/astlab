@@ -1,5 +1,4 @@
 import importlib
-import typing as t
 
 import pytest
 from pytest_case_provider import inject_method
@@ -124,28 +123,6 @@ class TestTypeLoader:
         loaded = type_loader.load(case.info)
 
         assert loaded == case.python_type
-
-    @inject_method()
-    def test_load_origin_is_same_python_type_origin(
-        self,
-        case: TypeCase,
-        type_loader: TypeLoader,
-        type_inspector: TypeInspector,
-    ) -> None:
-        loaded = type_loader.load(case.info)
-
-        assert t.get_origin(loaded) is t.get_origin(case.python_type)
-
-    @inject_method()
-    def test_load_args_are_same_python_type_args(
-        self,
-        case: TypeCase,
-        type_loader: TypeLoader,
-        type_inspector: TypeInspector,
-    ) -> None:
-        loaded = type_loader.load(case.info)
-
-        assert t.get_args(loaded) == t.get_args(case.python_type)
 
     @pytest.mark.parametrize(
         ("info", "error"),

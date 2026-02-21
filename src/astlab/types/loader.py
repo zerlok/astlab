@@ -72,7 +72,7 @@ class TypeLoader:
         python_version: t.Optional[PythonVersion] = None,
     ) -> None:
         self.__module = module or ModuleLoader()
-        self.__version = PythonVersion.get(python_version)
+        self.__version = PythonVersion.parse(python_version)
 
     @lru_cache_method()
     def load(self, info: TypeInfo) -> RuntimeType:
@@ -147,24 +147,21 @@ class TypeLoader:
     if sys.version_info >= (3, 10):
 
         def __load_union_type(self, info: UnionTypeInfo) -> RuntimeType:
-            if self.__version < PythonVersion.PY310:
-                return self.__load_typing_union(info)
+            if self.__version >= PythonVersion.PY310:
+                head, *tail = info.values
 
-            head, *tail = info.values
+                rtt = self.load(head)
+                for val in tail:
+                    rtt |= self.load(val)
 
-            rtt = self.load(head)
-            for val in tail:
-                rtt |= self.load(val)
+                return rtt
 
-            return rtt
+            return self.__parametrize_type(info, t.Union, info.values)
 
     else:
 
         def __load_union_type(self, info: UnionTypeInfo) -> RuntimeType:
-            return self.__load_typing_union(info)
-
-    def __load_typing_union(self, info: UnionTypeInfo) -> RuntimeType:
-        return self.__parametrize_type(info, t.Union, info.values)
+            return self.__parametrize_type(info, t.Union, info.values)
 
     def __parametrize_type(self, info: TypeInfo, rtt: RuntimeType, params: t.Sequence[TypeInfo]) -> RuntimeType:
         if not params:
