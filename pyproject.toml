@@ -36,7 +36,7 @@ pytest = "^8.3.3"
 pytest-cov = ">=6,<8"
 ruff = ">=0.7.4,<1"
 pytest-case-provider = "^0.4.0"
-nox = "^2025.11.12"
+nox = ">=2025.11.12,<2027.0.0"
 
 
 [build-system]
