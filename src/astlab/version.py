@@ -2,8 +2,9 @@ import enum
 import sys
 import typing as t
 
+from astlab._typing import override
 
-# TODO: add parameter for `click` (to easily specify versions and parse str to version enum).
+
 class PythonVersion(enum.Enum):
     PY39 = (3, 9)
     PY310 = (3, 10)
@@ -13,15 +14,59 @@ class PythonVersion(enum.Enum):
     PY314 = (3, 14)
 
     @classmethod
-    def parse(cls, value: t.Union["PythonVersion", t.Sequence[int], None] = None) -> "PythonVersion":
+    def get_current(cls) -> "PythonVersion":
+        return cls(sys.version_info[:2])  # type: ignore[misc]
+
+    @classmethod
+    def get_all_supported(cls, *, ignore_outdated_runtime: bool = False) -> t.Iterable["PythonVersion"]:
+        if ignore_outdated_runtime:
+            return cls
+
+        current = cls.get_current()
+        return (v for v in cls if v <= current)
+
+    @classmethod
+    def parse(
+        cls,
+        value: t.Union["PythonVersion", t.Sequence[int], str, None],
+        *,
+        ignore_outdated_runtime: bool = False,
+    ) -> "PythonVersion":
         if isinstance(value, PythonVersion):
-            cls.__validate(value.value)
-            return value
+            result = value
+
+        elif isinstance(value, str):
+            major, _, minor = value.partition(".")
+            try:
+                result = cls((int(major), int(minor)))
+
+            except ValueError:
+                msg = f"{value!r} is not a valid {cls.__name__}"
+                raise ValueError(msg) from None
+
+        elif isinstance(value, t.Sequence):
+            result = cls(tuple(value[:2]))
+
+        elif value is None:
+            result = cls.get_current()
 
         else:
-            target = tuple(value[:2]) if value is not None else sys.version_info[:2]  # type: ignore[misc]
-            cls.__validate(target)
-            return cls(target) if target <= max(cls).value else max(cls)
+            t.assert_never(value)
+
+        if not ignore_outdated_runtime and sys.version_info < result.value:
+            msg = "current python runtime version is outdated to use the specified python version"
+            raise ValueError(msg, sys.version_info, result)
+
+        return result
+
+    @override
+    def __str__(self) -> str:
+        major, minor = self.value
+        return f"{major}.{minor}"
+
+    @override
+    def __repr__(self) -> str:
+        return f"<{self.__class__.__name__}.{self.name}>"
 
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
@@ -46,13 +91,3 @@ class PythonVersion(enum.Enum):
             return NotImplemented
 
         return self.value >= other.value
-
-    @classmethod
-    def __validate(cls, version: tuple[int, ...]) -> None:
-        if sys.version_info < version:
-            msg = "the current version of python is too old"
-            raise RuntimeError(msg, sys.version_info, version)
-
-        if version < min(cls).value:
-            msg = "the specified version of python is too old"
-            raise RuntimeError(msg, version)

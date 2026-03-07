@@ -6,7 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Install dependencies
-poetry install
+poetry install --all-extras
+
+# Lint (check)
+poetry run ruff check
+poetry run ruff format --check
+
+# Format (fix)
+poetry run ruff check --fix
+poetry run ruff format
+
+# Type check
+poetry run mypy
+
+# Run tests (no coverage)
+poetry run pytest --no-cov
 
 # Run tests (with coverage)
 poetry run pytest
@@ -16,16 +30,6 @@ poetry run pytest tests/unit/test_builder.py::test_module_build
 
 # Run a specific test case by name (pytest-case-provider parametrizes test names)
 poetry run pytest tests/unit/test_builder.py -k "simple_module"
-
-# Lint (check)
-poetry run ruff check
-poetry run ruff format --check
-
-# Format (fix)
-poetry run ruff format
-
-# Type check
-poetry run mypy
 
 # Run all checks across all supported Python versions (3.9–3.14) via nox
 nox -s ruff

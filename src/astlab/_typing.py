@@ -1,3 +1,6 @@
+"""Simplifies typing imports. Old python versions doesn't support all types, and they are available from
+typing_extensions, while modern python versions provide same types from typing module."""
+
 __all__ = [
     "EllipsisType",
     "Self",
