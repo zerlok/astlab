@@ -2,7 +2,7 @@ import enum
 import sys
 import typing as t
 
-from astlab._typing import override
+from astlab._typing import assert_never, override
 
 
 class PythonVersion(enum.Enum):
@@ -51,7 +51,7 @@ class PythonVersion(enum.Enum):
             result = cls.get_current()
 
         else:
-            t.assert_never(value)
+            assert_never(value)
 
         if not ignore_outdated_runtime and sys.version_info < result.value:
             msg = "current python runtime version is outdated to use the specified python version"

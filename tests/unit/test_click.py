@@ -1,3 +1,4 @@
+import sys
 import typing as t
 
 import click
@@ -71,6 +72,14 @@ class TestPythonVersionParamType:
         return []
 
 
-@pytest.fixture
-def cli() -> CliRunner:
-    return CliRunner(catch_exceptions=False)
+if sys.version_info >= (3, 11):
+
+    @pytest.fixture
+    def cli() -> CliRunner:
+        return CliRunner(catch_exceptions=False)
+
+else:
+
+    @pytest.fixture
+    def cli() -> CliRunner:
+        return CliRunner()
